@@ -429,9 +429,11 @@ def update_fruit(fruit_id):
             try: exist_lat = float(ws_r.cell(r, R_LAT).value or 0)
             except: exist_lat = 0
             if exist_lng == 0 and exist_lat == 0:
-                new_lng, new_lat = geocode(
-                    current.get('province', ''), current.get('city', ''),
-                    current.get('district', ''), current.get('town', ''))
+                prov = current.get('province', '') or str(ws_r.cell(r, R_PROV).value or '')
+                city = current.get('city', '') or str(ws_r.cell(r, R_CITY).value or '')
+                dist = current.get('district', '') or str(ws_r.cell(r, R_DIST).value or '')
+                town = current.get('town', '') or str(ws_r.cell(r, R_TOWN).value or '')
+                new_lng, new_lat = geocode(prov, city, dist, town)
                 ws_r.cell(r, R_LNG).value = new_lng
                 ws_r.cell(r, R_LAT).value = new_lat
             break
