@@ -272,10 +272,14 @@ def create_fruit():
         return jsonify({'error': 'Request body required'}), 400
 
     # Validate required fields
-    required = ['name', 'category', 'province', 'city', 'district']
+    required = ['name', 'category', 'province', 'city']
     for field in required:
         if not body.get(field, '').strip():
             return jsonify({'error': f'Missing required field: {field}'}), 400
+
+    # Fallback for optional fields
+    if not body.get('district', '').strip():
+        body['district'] = body.get('city', '')
 
     wb = openpyxl.load_workbook(EXCEL_PATH)
     ws = wb['水果产品库']
@@ -294,15 +298,18 @@ def create_fruit():
 
     # Also add a region mapping row for this fruit
     new_region_row = ws_r.max_row + 1
-    ws_r.cell(new_region_row, R_ADCODE).value = '000000000'  # placeholder
+    ws_r.cell(new_region_row, R_ADCODE).value = str(body.get('adcode', '000000000')).strip() or '000000000'
     ws_r.cell(new_region_row, R_PROV).value = body.get('province', '')
     ws_r.cell(new_region_row, R_CITY).value = body.get('city', '')
     ws_r.cell(new_region_row, R_DIST).value = body.get('district', '')
     ws_r.cell(new_region_row, R_TOWN).value = body.get('town', '')
-    ws_r.cell(new_region_row, R_LNG).value = 0
-    ws_r.cell(new_region_row, R_LAT).value = 0
+    try: ws_r.cell(new_region_row, R_LNG).value = float(body.get('lng', 0))
+    except: ws_r.cell(new_region_row, R_LNG).value = 0
+    try: ws_r.cell(new_region_row, R_LAT).value = float(body.get('lat', 0))
+    except: ws_r.cell(new_region_row, R_LAT).value = 0
     ws_r.cell(new_region_row, R_FIDS).value = new_id
-    ws_r.cell(new_region_row, R_LEVEL).value = '一般产区'
+    level_val = str(body.get('level', '一般产区')).strip()
+    ws_r.cell(new_region_row, R_LEVEL).value = level_val if level_val else '一般产区'
 
     wb.save(EXCEL_PATH)
     wb.close()
@@ -333,22 +340,52 @@ def update_fruit(fruit_id):
         wb.close()
         return jsonify({'error': f'Fruit {fruit_id} not found'}), 404
 
-    body['id'] = fruit_id
+    # 先读取当前行所有数据，只更新 body 中存在的字段（防止覆盖丢失数据）
+    current = {
+        'id': str(ws.cell(target_row, F_ID).value or '').strip(),
+        'name': str(ws.cell(target_row, F_NAME).value or '').strip(),
+        'category': str(ws.cell(target_row, F_CAT).value or '').strip(),
+        'province': str(ws.cell(target_row, F_PROV).value or '').strip(),
+        'city': str(ws.cell(target_row, F_CITY).value or '').strip(),
+        'district': str(ws.cell(target_row, F_DIST).value or '').strip(),
+        'town': str(ws.cell(target_row, F_TOWN).value or '').strip(),
+        'seasonStart': int(ws.cell(target_row, F_SEA_START).value or 1),
+        'seasonEnd': int(ws.cell(target_row, F_SEA_END).value or 12),
+        'peakStart': int(ws.cell(target_row, F_PEAK_START).value or 1),
+        'peakEnd': int(ws.cell(target_row, F_PEAK_END).value or 12),
+        'lunarSeasonStart': int(ws.cell(target_row, F_LUNAR_SS).value or 0),
+        'lunarSeasonEnd': int(ws.cell(target_row, F_LUNAR_SE).value or 0),
+        'lunarPeakStart': int(ws.cell(target_row, F_LUNAR_PS).value or 0),
+        'lunarPeakEnd': int(ws.cell(target_row, F_LUNAR_PE).value or 0),
+        'curveType': str(ws.cell(target_row, F_CURVE).value or '').strip(),
+        'desc': str(ws.cell(target_row, F_DESC).value or '').strip(),
+    }
+    # 合并：body 中有值的字段覆盖 current
+    for key in current:
+        if key in body and body[key] is not None:
+            val = body[key]
+            if key in ('seasonStart', 'seasonEnd', 'peakStart', 'peakEnd',
+                       'lunarSeasonStart', 'lunarSeasonEnd', 'lunarPeakStart', 'lunarPeakEnd'):
+                try: val = int(val)
+                except: val = current[key]
+            if isinstance(val, str):
+                val = val.strip()
+            current[key] = val
 
     # Auto-calculate lunar fields from solar fields
-    _auto_fill_lunar(body)
+    _auto_fill_lunar(current)
 
-    write_fruit_row(ws, target_row, body)
+    write_fruit_row(ws, target_row, current)
 
     # If location changed, update matching region mapping
     ws_r = wb['产区映射表']
     for r in range(2, ws_r.max_row + 1):
         fids = str(ws_r.cell(r, R_FIDS).value or '').strip()
         if fruit_id in fids.split(','):
-            ws_r.cell(r, R_PROV).value = body.get('province', '')
-            ws_r.cell(r, R_CITY).value = body.get('city', '')
-            ws_r.cell(r, R_DIST).value = body.get('district', '')
-            ws_r.cell(r, R_TOWN).value = body.get('town', '')
+            if 'province' in current: ws_r.cell(r, R_PROV).value = current.get('province', '')
+            if 'city' in current: ws_r.cell(r, R_CITY).value = current.get('city', '')
+            if 'district' in current: ws_r.cell(r, R_DIST).value = current.get('district', '')
+            if 'town' in current: ws_r.cell(r, R_TOWN).value = current.get('town', '')
             break
 
     wb.save(EXCEL_PATH)
@@ -487,6 +524,80 @@ def refresh_data():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ---- 批量同步：将浏览器端所有数据写入 Excel ----
+
+@app.route('/api/sync-all', methods=['POST'])
+def sync_all():
+    """接收浏览器端全部水果/产区/曲线数据，完整写入 Excel 并重新生成 HTML。"""
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'Request body required'}), 400
+
+    fruits_data = body.get('fruits', [])
+    regions_data = body.get('regions', [])
+    curves_data = body.get('curves', [])
+
+    # 安全防护：拒绝空数据写入（防止意外清空 Excel）
+    if not fruits_data and not regions_data and not curves_data:
+        return jsonify({'error': '拒绝空数据写入：fruits/regions/curves 均为空，未修改 Excel'}), 400
+    if len(fruits_data) < 10:
+        return jsonify({'error': f'安全防护：水果数据仅 {len(fruits_data)} 条（<10），拒绝写入以防数据丢失'}), 400
+
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+
+    # 重写 Sheet1: 水果产品库
+    ws_f = wb['水果产品库']
+    # 清除旧数据（保留标题行）
+    for r in range(ws_f.max_row, 1, -1):
+        ws_f.delete_rows(r)
+    for i, f in enumerate(fruits_data):
+        row_num = i + 2
+        _auto_fill_lunar(f)
+        write_fruit_row(ws_f, row_num, f)
+
+    # 重写 Sheet2: 产区映射表
+    ws_r = wb['产区映射表']
+    for r in range(ws_r.max_row, 1, -1):
+        ws_r.delete_rows(r)
+    for i, r in enumerate(regions_data):
+        row_num = i + 2
+        ws_r.cell(row_num, R_ADCODE).value = str(r.get('adcode', '')).strip()
+        ws_r.cell(row_num, R_PROV).value = str(r.get('province', '')).strip()
+        ws_r.cell(row_num, R_CITY).value = str(r.get('city', '')).strip()
+        ws_r.cell(row_num, R_DIST).value = str(r.get('district', '')).strip()
+        ws_r.cell(row_num, R_TOWN).value = str(r.get('town', '')).strip()
+        try: ws_r.cell(row_num, R_LNG).value = float(r.get('lng', 0))
+        except: ws_r.cell(row_num, R_LNG).value = 0
+        try: ws_r.cell(row_num, R_LAT).value = float(r.get('lat', 0))
+        except: ws_r.cell(row_num, R_LAT).value = 0
+        ws_r.cell(row_num, R_FIDS).value = str(r.get('fruitIds', '')).strip()
+        ws_r.cell(row_num, R_LEVEL).value = str(r.get('level', '一般产区')).strip() or '一般产区'
+
+    # 重写 Sheet3: 成熟度曲线
+    ws_c = wb['成熟度曲线']
+    for r in range(ws_c.max_row, 1, -1):
+        ws_c.delete_rows(r)
+    for i, c in enumerate(curves_data):
+        row_num = i + 2
+        ws_c.cell(row_num, C_NAME).value = str(c.get('name', '')).strip()
+        vals = c.get('values', [])
+        for j, v in enumerate(vals):
+            try: ws_c.cell(row_num, j + 2).value = int(v)
+            except: ws_c.cell(row_num, j + 2).value = 0
+
+    wb.save(EXCEL_PATH)
+    wb.close()
+
+    # 重新生成 HTML 嵌入式数据
+    data = save_and_regenerate()
+    return jsonify({
+        'success': True,
+        'fruit_count': len(data['fruits']),
+        'region_count': len(data['regions']),
+        'curve_count': len(data['curves']),
+    })
 
 
 # ---- Static files ----
