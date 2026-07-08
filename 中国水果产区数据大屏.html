@@ -329,9 +329,7 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
   monthSel.addEventListener('change', function() {
     selectedMonth = +this.value;
     renderMap();
-    var ds = drillState;
-    if (ds.level === 'province' && ds.province) showProvinceDetail(ds.province);
-    else if (ds.level === 'city' && ds.city) showCityDetail(ds.city, ds.province);
+    if (zoomState.provName) showProvinceDetail(zoomState.provName);
   });
 
   // Indexes
@@ -392,63 +390,7 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
   // ============ MAP ============
   var mapChart = null;
   var drillState = { level: 'nation', province: null, city: null };
-  var geoMapCache = {};  // adcode -> mapName
-  var provAdcodeMap = {}; // province short name -> adcode
-
-  // 从省份全名获取 DataV adcode（前2位+0000）
-  function getProvAdcode(provName) {
-    var short = provName.replace(/省|市|壮族自治区|回族自治区|维吾尔自治区|自治区/g, '');
-    return provAdcodeMap[short] || provAdcodeMap[provName] || null;
-  }
-
-  // 获取城市 adcode（从区域内任意 adcode 的前4位+00）
-  function getCityAdcode(cityName, provName) {
-    var regs = ((provIndex[provName] || {}).cities || {})[cityName] || [];
-    for (var i = 0; i < regs.length; i++) {
-      if (regs[i].adcode && regs[i].adcode.length >= 4) {
-        return regs[i].adcode.substring(0, 4) + '00';
-      }
-    }
-    return null;
-  }
-
-  // 加载并注册 GeoJSON 地图（带缓存）
-  function loadGeoMap(adcode) {
-    if (geoMapCache[adcode]) return Promise.resolve(geoMapCache[adcode]);
-    return fetch('https://geo.datav.aliyun.com/areas_v3/bound/' + adcode + '_full.json')
-      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(geo) {
-        var mapName = 'map_' + adcode;
-        echarts.registerMap(mapName, geo);
-        geoMapCache[adcode] = mapName;
-        return mapName;
-      });
-  }
-
-  // 城市级聚合（某省下各城市的产区统计）
-  function getCityData(provName) {
-    var cities = (provIndex[provName] || {}).cities || {};
-    return Object.keys(cities).map(function(ck) {
-      var regs = cities[ck];
-      return { name: ck, value: regs.length, core: regs.filter(function(r) { return r.level === '核心产区'; }).length };
-    });
-  }
-
-  // 区县级聚合（某市下各区县的产区统计）
-  function getDistrictData(cityName, provName) {
-    var districts = {};
-    var regs = ((provIndex[provName] || {}).cities || {})[cityName] || [];
-    regs.forEach(function(r) {
-      var dk = r.district || r.city || cityName;
-      if (!districts[dk]) districts[dk] = { count: 0, core: 0 };
-      districts[dk].count++;
-      if (r.level === '核心产区') districts[dk].core++;
-    });
-    return Object.keys(districts).map(function(dk) {
-      var d = districts[dk];
-      return { name: dk, value: d.count, core: d.core };
-    });
-  }
+  var zoomState = { center: [105, 36], zoom: 1.2, provName: null }; // 追踪当前 zoom 位置
 
   function getProvData() {
     var m = {};
@@ -495,28 +437,6 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
     };
   }
 
-  function buildCityLabelPoints(regs) {
-    var groups = {};
-    regs.forEach(function(r) {
-      var ck = r.city || r.province;
-      if (!groups[ck]) groups[ck] = { regs: [], lngs: [], lats: [] };
-      groups[ck].regs.push(r);
-      if (r.lng > 0 && r.lat > 0) { groups[ck].lngs.push(r.lng); groups[ck].lats.push(r.lat); }
-    });
-    return Object.entries(groups).map(function(e) {
-      var ck = e[0], g = e[1];
-      var bestReg = g.regs.find(function(r) { return regionPhase(r) >= 0; }) || g.regs[0];
-      var ph = regionPhase(bestReg);
-      var lng = g.lngs.length > 0 ? g.lngs.reduce(function(a,b){return a+b},0)/g.lngs.length : bestReg.lng;
-      var lat = g.lats.length > 0 ? g.lats.reduce(function(a,b){return a+b},0)/g.lats.length : bestReg.lat;
-      return {
-        name: ck, value: [lng, lat], city: ck, province: bestReg.province,
-        count: g.regs.length, phase: ph, symbolSize: 14,
-        itemStyle: { color: ph === 0 ? '#52c41a' : phaseColors[ph], borderColor: '#fff', borderWidth: 2, shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.15)' }
-      };
-    });
-  }
-
   // 在当前层级的地图数据中，根据 name 匹配图斑
   function matchMapFeature(name, dataList) {
     for (var i = 0; i < dataList.length; i++) {
@@ -527,57 +447,33 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
     return null;
   }
 
-  // 执行地图渲染（同步部分 — mapName 已加载）
-  function _doRender(mapName, mapData, showRegions, geoCenter, geoZoom, showSubLabels) {
-    var ds = drillState;
+  // 执行地图渲染 — 始终使用中国地图，只改变 center/zoom
+  function _doRender(mapName, mapData, showRegions, geoCenter, geoZoom) {
     var coreScatters = [], normalScatters = [];
     showRegions.forEach(function(r) {
       var pt = buildScatterPoint(r);
-      if (ds.level !== 'nation') pt.symbolSize = (r.level === '核心产区' ? 10 : 6);
       if (r.level === '核心产区') coreScatters.push(pt);
       else normalScatters.push(pt);
     });
-
-    // 找出当前选中的高亮区域
-    var highlightRegions = [];
-    if (ds.level === 'province' && ds.city) {
-      highlightRegions.push({
-        name: ds.city,
-        itemStyle: { areaColor: '#d6e4f8', borderColor: '#3b7cdc', borderWidth: 2 },
-        label: { show: true, color: '#3b7cdc', fontSize: 13, fontWeight: 'bold' }
-      });
-    }
 
     var series = [
       { name: '产区密度', type: 'map', map: mapName, geoIndex: 0, data: mapData }
     ];
 
-    // 散点：城市级标注点
-    if (showSubLabels && ds.level === 'province') {
-      var cityPts = buildCityLabelPoints(showRegions);
-      if (cityPts.length > 0) {
-        series.push({
-          name: '城市', type: 'scatter', coordinateSystem: 'geo', data: cityPts, symbolSize: 14, zlevel: 2,
-          label: { show: true, formatter: function(p) { return p.data.count > 1 ? p.data.name + '(' + p.data.count + ')' : p.data.name; }, position: 'top', color: '#333', fontSize: 11, fontWeight: 'bold', distance: 8, backgroundColor: 'rgba(255,255,255,0.85)', padding: [2,5], borderRadius: 3 },
-          emphasis: { scale: 1.3, label: { fontSize: 13 } }
-        });
-      }
-    }
-
     if (coreScatters.length > 0) {
       series.push({
         name: '核心产区', type: 'effectScatter', coordinateSystem: 'geo', data: coreScatters,
-        symbolSize: ds.level === 'nation' ? 8 : 10, showEffectOn: 'render',
+        symbolSize: 8, showEffectOn: 'render',
         rippleEffect: { brushType: 'stroke', scale: 3 }, zlevel: 1,
-        label: { show: ds.level === 'city', formatter: '{b}', position: 'right', color: '#555', fontSize: 10, distance: 4 },
+        label: { show: false, formatter: '{b}', position: 'right', color: '#555', fontSize: 10, distance: 4 },
         emphasis: { label: { fontSize: 12, fontWeight: 'bold' } }
       });
     }
     if (normalScatters.length > 0) {
       series.push({
         name: '产区', type: 'scatter', coordinateSystem: 'geo', data: normalScatters,
-        symbolSize: ds.level === 'nation' ? 5 : 7, zlevel: 1,
-        label: { show: ds.level === 'city', formatter: '{b}', position: 'right', color: '#555', fontSize: 10, distance: 4 },
+        symbolSize: 5, zlevel: 1,
+        label: { show: false, formatter: '{b}', position: 'right', color: '#555', fontSize: 10, distance: 4 },
         emphasis: { label: { fontSize: 12, fontWeight: 'bold' } }
       });
     }
@@ -589,11 +485,6 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
         textStyle: { color: '#333', fontSize: 12 },
         extraCssText: 'box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 4px;',
         formatter: function(p) {
-          if (p.seriesName === '城市') {
-            var cd = matchMapFeature(p.data.name, mapData);
-            var core = cd ? cd.core : 0;
-            return '<b>' + p.data.name + '</b><br/>产区: ' + p.data.count + ' 个（核心 ' + core + ' 个）<br/>' + selectedMonth + '月状态: <span style="color:' + (phaseColors[p.data.phase] || '#bbb') + '">' + (phaseNames[p.data.phase] || '暂无数据') + '</span>';
-          }
           if (p.seriesType === 'effectScatter' || p.seriesType === 'scatter') {
             var ph = p.data.phase;
             var flist = (p.data.fruitIds || '').split(',').filter(Boolean).map(function(id) { var ff = fruitMap[id.trim()]; return ff ? ff.name : id; }).join('、');
@@ -606,10 +497,10 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
       },
       geo: {
         map: mapName, roam: true, zoom: geoZoom, center: geoCenter, scaleLimit: { min: 0.8, max: 25 },
-        label: { show: ds.level !== 'city', color: '#9aa8b8', fontSize: 10, distance: 0 },
+        label: { show: true, color: '#9aa8b8', fontSize: 10, distance: 0 },
         emphasis: { label: { show: true, color: '#333', fontSize: 13 }, itemStyle: { areaColor: '#d6e0eb' } },
         itemStyle: { areaColor: '#f0f3f7', borderColor: '#ccd5e0', borderWidth: 1 },
-        regions: highlightRegions
+        regions: []
       },
       series: series
     }, true);
@@ -617,154 +508,88 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
     // 绑定点击事件
     mapChart.off('click');
     mapChart.on('click', function(params) {
-      var ds2 = drillState;
-
-      if (params.seriesName === '城市') {
-        // 点击城市标注点 → 下钻到城市
-        drillState = { level: 'city', province: params.data.province, city: params.data.city };
-        renderMap();
-        updateBackBtn();
-        showCityDetail(params.data.city, params.data.province);
-
-      } else if (params.componentType === 'geo' && ds2.level === 'nation') {
-        // 全国 → 点击省份 → 下钻到省
-        var pd2 = matchMapFeature(params.name, mapData);
-        if (pd2 && pd2.full && provIndex[pd2.full]) {
-          drillState = { level: 'province', province: pd2.full, city: null };
-          renderMap();
-          updateBackBtn();
-          showProvinceDetail(pd2.full);
-        }
-
-      } else if (params.componentType === 'geo' && ds2.level === 'province') {
-        // 省份 → 点击城市图斑 → 下钻到市
-        var cd = matchMapFeature(params.name, mapData);
-        if (cd && cd.name) {
-          var cityRegs = ((provIndex[ds2.province] || {}).cities || {})[cd.name];
-          if (cityRegs && cityRegs.length > 0) {
-            drillState = { level: 'city', province: ds2.province, city: cd.name };
-            renderMap();
-            updateBackBtn();
-            showCityDetail(cd.name, ds2.province);
+      // 点击省份图斑 → zoom 到该省
+      if (params.componentType === 'geo') {
+        var pd = null;
+        var pdata = getProvData();
+        for (var i = 0; i < pdata.length; i++) {
+          if (pdata[i].name === params.name || params.name.indexOf(pdata[i].name) === 0 || pdata[i].name.indexOf(params.name) === 0) {
+            pd = pdata[i];
+            break;
           }
         }
-
-      } else if (params.componentType === 'geo' && ds2.level === 'city') {
-        // 市 → 点击区县图斑 → 更新详情面板
-        var dd = matchMapFeature(params.name, mapData);
-        if (dd && dd.name) {
-          drillState = { level: 'city', province: ds2.province, city: ds2.city };
-          showDistrictDetailInPanel(dd.name, ds2.city, ds2.province);
+        if (pd && pd.full && provIndex[pd.full]) {
+          var bnd = getProvBounds(pd.full);
+          if (bnd) {
+            var span = Math.max(bnd.lngSpan, bnd.latSpan, 0.5);
+            var newZoom = Math.min(600 / span, 20);
+            zoomState.center = bnd.center;
+            zoomState.zoom = newZoom;
+            zoomState.provName = pd.full;
+            mapChart.setOption({
+              geo: { center: bnd.center, zoom: newZoom }
+            }, { notMerge: false });
+            updateBackBtn();
+            showProvinceDetail(pd.full);
+          }
         }
+        return;
+      }
 
-      } else if ((params.seriesType === 'effectScatter' || params.seriesType === 'scatter') && params.seriesName !== '城市') {
+      // 点击散点 → 进一步 zoom 到该市区域
+      if (params.seriesType === 'effectScatter' || params.seriesType === 'scatter') {
+        if (!params.data.adcode) return;
         var r = regionMap[params.data.adcode];
         if (!r) return;
-        if (ds2.level === 'nation') {
-          drillState = { level: 'province', province: r.province, city: null };
-          renderMap();
-          updateBackBtn();
-          showProvinceDetail(r.province);
-        } else if (ds2.level === 'province') {
-          var ckey = r.city || r.province;
-          drillState = { level: 'city', province: r.province, city: ckey };
-          renderMap();
-          updateBackBtn();
-          showCityDetail(ckey, r.province);
-        } else {
+        if (!zoomState.provName) return; // 未 zoom 到省份前，点散点不做 zoom
+
+        var cityName = r.city || r.province;
+        var cityRegs = ((provIndex[zoomState.provName] || {}).cities || {})[cityName] || [];
+        var bnd = boundsOf(cityRegs);
+        if (bnd) {
+          var span = Math.max(bnd.lngSpan, bnd.latSpan, 0.3);
+          var newZoom = Math.min(800 / span, 25);
+          zoomState.center = bnd.center;
+          zoomState.zoom = newZoom;
+          mapChart.setOption({
+            geo: { center: bnd.center, zoom: newZoom }
+          }, { notMerge: false });
           showRegionDetail(r);
         }
+        return;
       }
     });
   }
 
-  function renderMap() {
+  function renderMap(optCenter, optZoom) {
     var dom = document.getElementById('chart-map');
     if (!dom || !mapChart) return;
-    var ds = drillState;
 
-    if (ds.level === 'nation') {
-      // 全国层级：使用 China GeoJSON
-      var pdata = getProvData();
-      var mapData = pdata.map(function(d) { return { name: d.name, full: d.full, value: d.value, core: d.core }; });
-      _doRender('china', mapData, validRegions, [105, 36], 1.2, false);
+    // 始终使用中国地图，所有散点可见
+    var pdata = getProvData();
+    var mapData = pdata.map(function(d) { return { name: d.name, full: d.full, value: d.value, core: d.core }; });
 
-    } else if (ds.level === 'province') {
-      // 省份层级：加载省 GeoJSON，按城市着色
-      var adcode = getProvAdcode(ds.province);
-      if (!adcode) { showToast('未找到对应地图数据', true); return; }
-      loadGeoMap(adcode).then(function(mapName) {
-        var cityData = getCityData(ds.province);
-        var mapData = cityData.map(function(d) { return { name: d.name, value: d.value, core: d.core }; });
-        var showRegs = validRegions.filter(function(r) { return r.province === ds.province; });
-        var bounds = getProvBounds(ds.province);
-        var center = bounds ? bounds.center : [105, 36];
-        var zoom = Math.min(400 / (bounds ? Math.max(bounds.lngSpan, bounds.latSpan, 2) : 30), 10);
-        _doRender(mapName, mapData, showRegs, center, zoom, true);
-      }).catch(function(err) {
-        console.error('加载省份地图失败:', err);
-        showToast('加载省份地图失败，请检查网络', true);
-      });
+    var center = optCenter || zoomState.center;
+    var zoom = optZoom != null ? optZoom : zoomState.zoom;
 
-    } else if (ds.level === 'city') {
-      // 城市层级：加载市 GeoJSON，按区县着色
-      var cityAdcode = getCityAdcode(ds.city, ds.province);
-      if (!cityAdcode) { showToast('未找到对应城市地图数据', true); return; }
-      loadGeoMap(cityAdcode).then(function(mapName) {
-        var distData = getDistrictData(ds.city, ds.province);
-        var mapData = distData.map(function(d) { return { name: d.name, value: d.value, core: d.core }; });
-        var showRegs = validRegions.filter(function(r) {
-          return r.province === ds.province && (r.city || r.province) === ds.city;
-        });
-        var bounds2 = getCityBounds(ds.city, ds.province);
-        var center = bounds2 ? bounds2.center : [105, 36];
-        var zoom = Math.min(800 / (bounds2 ? Math.max(bounds2.lngSpan, bounds2.latSpan, 1) : 10), 16);
-        _doRender(mapName, mapData, showRegs, center, zoom, false);
-      }).catch(function(err) {
-        console.error('加载城市地图失败:', err);
-        showToast('加载城市地图失败，请检查网络', true);
-      });
-    }
+    _doRender('china', mapData, validRegions, center, zoom);
   }
 
   function drillUp() {
-    var ds = drillState;
-    if (ds.level === 'city') {
-      drillState = { level: 'province', province: ds.province, city: null };
-      renderMap();
-      updateBackBtn();
-      showProvinceDetail(ds.province);
-    } else if (ds.level === 'province') {
-      drillState = { level: 'nation', province: null, city: null };
-      renderMap();
-      updateBackBtn();
-      showEmptyDetail();
-    }
+    zoomState = { center: [105, 36], zoom: 1.2, provName: null };
+    mapChart.setOption({
+      geo: { center: [105, 36], zoom: 1.2 }
+    }, { notMerge: false });
+    updateBackBtn();
+    showEmptyDetail();
   }
   window.drillUp = drillUp;
 
-  // 区县级详情面板（在城市地图上点击区县图斑时触发）
-  function showDistrictDetailInPanel(districtName, cityName, provName) {
-    var regs = ((provIndex[provName] || {}).cities || {})[cityName] || [];
-    var matched = regs.filter(function(r) { return (r.district || r.city) === districtName; });
-    if (matched.length === 0) {
-      // 无产区数据，仅显示简要信息
-      document.getElementById('detail-header').textContent = districtName + ' · 区县';
-      document.getElementById('detail-body').innerHTML = '<div class="detail-empty">该区县暂无产区数据<br><br><button class="btn-sm primary" onclick="showAddRegionForm(\'' + provName.replace(/'/g, "\\'") + '\',\'' + cityName.replace(/'/g, "\\'") + '\',\'' + districtName.replace(/'/g, "\\'") + '\')">+ 新增产区及品种</button></div>';
-      return;
-    }
-    // 显示第一个匹配产区的详情
-    showRegionDetail(matched[0]);
-  }
-
   function updateBackBtn() {
-    var btn = document.getElementById('back-btn'), ds = drillState;
-    if (ds.level === 'city') {
+    var btn = document.getElementById('back-btn'), ds = zoomState;
+    if (ds.provName) {
       btn.classList.add('show');
-      btn.textContent = '返回 ' + (ds.province ? ds.province.replace(/省|市|壮族自治区|回族自治区|维吾尔自治区|自治区/g,'') : '省份');
-    } else if (ds.level === 'province') {
-      btn.classList.add('show');
-      btn.textContent = '返回全国';
+      btn.textContent = '回到全国';
     } else {
       btn.classList.remove('show');
     }
@@ -1484,12 +1309,31 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
   // ============ WINDOW CALLBACKS ============
   window._showRegion = function(adcode) { var r = regionMap[adcode]; if (r) showRegionDetail(r); };
   window._drillCity = function(cityName, provName) {
-    drillState = { level: 'city', province: provName, city: cityName };
-    renderMap(); updateBackBtn(); showCityDetail(cityName, provName);
+    if (!zoomState.provName) zoomState.provName = provName;
+    var cityRegs = ((provIndex[provName] || {}).cities || {})[cityName] || [];
+    var bnd = boundsOf(cityRegs);
+    if (bnd) {
+      var span = Math.max(bnd.lngSpan, bnd.latSpan, 0.3);
+      var newZoom = Math.min(800 / span, 25);
+      zoomState.center = bnd.center;
+      zoomState.zoom = newZoom;
+      mapChart.setOption({ geo: { center: bnd.center, zoom: newZoom } }, { notMerge: false });
+    }
+    updateBackBtn();
+    showCityDetail(cityName, provName);
   };
   window._drillUpToProv = function(provName) {
-    drillState = { level: 'province', province: provName, city: null };
-    renderMap(); updateBackBtn(); showProvinceDetail(provName);
+    var bnd = getProvBounds(provName);
+    if (bnd) {
+      var span = Math.max(bnd.lngSpan, bnd.latSpan, 0.5);
+      var newZoom = Math.min(600 / span, 20);
+      zoomState.center = bnd.center;
+      zoomState.zoom = newZoom;
+      zoomState.provName = provName;
+      mapChart.setOption({ geo: { center: bnd.center, zoom: newZoom } }, { notMerge: false });
+    }
+    updateBackBtn();
+    showProvinceDetail(provName);
   };
 
   window.saveToExcel = function() {
@@ -1530,11 +1374,9 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
     if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
     reloadFromServer().then(function(info) {
       renderMap();
-      // 保持当前下钻状态
-      if (drillState.level === 'province' && drillState.province) {
-        showProvinceDetail(drillState.province);
-      } else if (drillState.level === 'city' && drillState.city) {
-        showCityDetail(drillState.city, drillState.province);
+      // 保持当前 zoom 状态
+      if (zoomState.provName) {
+        showProvinceDetail(zoomState.provName);
       }
       showToast('数据已更新（' + info.fruit_count + ' 种水果, ' + info.region_count + ' 个产区）');
     }).catch(function(err) {
@@ -1604,7 +1446,6 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
         });
         geoJson = cleanHainanGeo(geoJson);
         echarts.registerMap('china', geoJson);
-        geoMapCache['100000'] = 'china';  // 缓存全国地图
         renderMap();
         // 页面打开后自动从服务器拉取最新数据
         setTimeout(function() { window.refreshData(); }, 600);
