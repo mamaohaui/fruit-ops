@@ -541,7 +541,7 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
         if (!params.data.adcode) return;
         var r = regionMap[params.data.adcode];
         if (!r) return;
-        if (!zoomState.provName) return; // 未 zoom 到省份前，点散点不做 zoom
+        if (!zoomState.provName) { showRegionDetail(r); return; }
 
         var cityName = r.city || r.province;
         var cityRegs = ((provIndex[zoomState.provName] || {}).cities || {})[cityName] || [];
@@ -554,8 +554,8 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
           mapChart.setOption({
             geo: { center: bnd.center, zoom: newZoom }
           }, { notMerge: false });
-          showRegionDetail(r);
         }
+        showRegionDetail(r);
         return;
       }
     });
