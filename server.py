@@ -335,10 +335,15 @@ def create_fruit():
     ws_r.cell(new_region_row, R_CITY).value = body.get('city', '')
     ws_r.cell(new_region_row, R_DIST).value = body.get('district', '')
     ws_r.cell(new_region_row, R_TOWN).value = body.get('town', '')
-    try: ws_r.cell(new_region_row, R_LNG).value = float(body.get('lng', 0))
-    except: ws_r.cell(new_region_row, R_LNG).value = 0
-    try: ws_r.cell(new_region_row, R_LAT).value = float(body.get('lat', 0))
-    except: ws_r.cell(new_region_row, R_LAT).value = 0
+    try: lng = float(body.get('lng', 0))
+    except: lng = 0
+    try: lat = float(body.get('lat', 0))
+    except: lat = 0
+    # 若坐标为 0，调用高德 API 自动补全
+    if lng == 0 and lat == 0:
+        lng, lat = geocode(body.get('province', ''), body.get('city', ''), body.get('district', ''), body.get('town', ''))
+    ws_r.cell(new_region_row, R_LNG).value = lng
+    ws_r.cell(new_region_row, R_LAT).value = lat
     ws_r.cell(new_region_row, R_FIDS).value = new_id
     level_val = str(body.get('level', '一般产区')).strip()
     ws_r.cell(new_region_row, R_LEVEL).value = level_val if level_val else '一般产区'
@@ -418,6 +423,17 @@ def update_fruit(fruit_id):
             if 'city' in current: ws_r.cell(r, R_CITY).value = current.get('city', '')
             if 'district' in current: ws_r.cell(r, R_DIST).value = current.get('district', '')
             if 'town' in current: ws_r.cell(r, R_TOWN).value = current.get('town', '')
+            # 若产区坐标为 0，调用高德 API 补全
+            try: exist_lng = float(ws_r.cell(r, R_LNG).value or 0)
+            except: exist_lng = 0
+            try: exist_lat = float(ws_r.cell(r, R_LAT).value or 0)
+            except: exist_lat = 0
+            if exist_lng == 0 and exist_lat == 0:
+                new_lng, new_lat = geocode(
+                    current.get('province', ''), current.get('city', ''),
+                    current.get('district', ''), current.get('town', ''))
+                ws_r.cell(r, R_LNG).value = new_lng
+                ws_r.cell(r, R_LAT).value = new_lat
             break
 
     wb.save(EXCEL_PATH)
@@ -600,10 +616,17 @@ def sync_all():
         ws_r.cell(row_num, R_CITY).value = str(r.get('city', '')).strip()
         ws_r.cell(row_num, R_DIST).value = str(r.get('district', '')).strip()
         ws_r.cell(row_num, R_TOWN).value = str(r.get('town', '')).strip()
-        try: ws_r.cell(row_num, R_LNG).value = float(r.get('lng', 0))
-        except: ws_r.cell(row_num, R_LNG).value = 0
-        try: ws_r.cell(row_num, R_LAT).value = float(r.get('lat', 0))
-        except: ws_r.cell(row_num, R_LAT).value = 0
+        try: lng = float(r.get('lng', 0))
+        except: lng = 0
+        try: lat = float(r.get('lat', 0))
+        except: lat = 0
+        # 若坐标为 0，调用高德 API 自动补全
+        if lng == 0 and lat == 0:
+            lng, lat = geocode(
+                str(r.get('province', '')), str(r.get('city', '')),
+                str(r.get('district', '')), str(r.get('town', '')))
+        ws_r.cell(row_num, R_LNG).value = lng
+        ws_r.cell(row_num, R_LAT).value = lat
         ws_r.cell(row_num, R_FIDS).value = str(r.get('fruitIds', '')).strip()
         ws_r.cell(row_num, R_LEVEL).value = str(r.get('level', '一般产区')).strip() or '一般产区'
 
