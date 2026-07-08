@@ -17,6 +17,14 @@ import openpyxl
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from zhdate import ZhDate
+import hashlib
+import urllib.request
+import urllib.parse
+import json as json_lib
+
+# 高德地图 Web API 配置
+AMAP_KEY = "d60264473fe914fa0cf21d1a22a4e206"
+AMAP_SECRET = "ae7d546c1e8f25d8365b2c601fd3c96a"
 
 app = Flask(__name__)
 
@@ -146,6 +154,30 @@ def _auto_fill_lunar(body):
                 body[lunar_key] = _solar_to_lunar_month(int(solar_val))
             except (ValueError, TypeError):
                 body[lunar_key] = 0
+
+
+def geocode(province="", city="", district="", town=""):
+    """调用高德地理编码 API，返回 (lng, lat)，失败返回 (0, 0)。"""
+    parts = [p for p in [province, city, district, town] if p and str(p).strip()]
+    address = "".join(parts)
+    if not address.strip():
+        return 0, 0
+    try:
+        params = f"address={urllib.parse.quote(address)}&output=JSON"
+        sig_raw = f"/v3/geocode/geo?{params}&key={AMAP_KEY}{AMAP_SECRET}"
+        sig = hashlib.md5(sig_raw.encode()).hexdigest()
+        url = f"https://restapi.amap.com/v3/geocode/geo?{params}&key={AMAP_KEY}&sig={sig}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_lib.loads(resp.read().decode("utf-8"))
+        if data.get("status") == "1" and data.get("geocodes"):
+            loc = data["geocodes"][0].get("location", "0,0")
+            parts = loc.split(",")
+            if len(parts) == 2:
+                return float(parts[0]), float(parts[1])
+    except Exception as e:
+        print(f"[geocode] 查询失败: {address}, 错误: {e}")
+    return 0, 0
 
 
 def write_fruit_row(ws, row_num, fruit_data):
