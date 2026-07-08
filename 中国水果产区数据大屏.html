@@ -74,12 +74,11 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.05);
   }
   .phase-legend span { display: flex; align-items: center; gap: 5px; }
-  .phase-dot { width: 9px; height: 9px; border-radius: 50%; }
-  .phase-dot.green { background: #52c41a; }
+  .phase-dot { width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; }
+  .phase-dot.green-hollow { background: transparent; border: 2px solid #52c41a; width: 7px; height: 7px; }
   .phase-dot.yellow { background: #f5a623; }
   .phase-dot.red { background: #f04134; }
   .phase-dot.purple { background: #7b4dff; }
-  .phase-dot.hollow { background: transparent; border: 2px solid #bbb; width: 7px; height: 7px; }
 
   .map-msg {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 9;
@@ -201,11 +200,10 @@
     <div class="map-wrap" id="chart-map"></div>
     <div class="map-msg" id="map-msg">地图数据加载中，请稍候...<br><small style="color:#999">如长时间未显示，请检查网络连接后刷新页面</small></div>
     <div class="phase-legend">
-      <span><span class="phase-dot green"></span> 生长期</span>
+      <span><span class="phase-dot green-hollow"></span> 生长期</span>
       <span><span class="phase-dot yellow"></span> 成熟期</span>
       <span><span class="phase-dot red"></span> 盛产期</span>
       <span><span class="phase-dot purple"></span> 尾产期</span>
-      <span><span class="phase-dot hollow"></span> 暂无数据</span>
     </div>
   </div>
 
@@ -365,18 +363,17 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
   }
   function fruitPhase(fruit) {
     var ss = fruit.seasonStart, se = fruit.seasonEnd, ps = fruit.peakStart, pe = fruit.peakEnd, m = selectedMonth;
-    if (!ss || !se || !ps || !pe) return -1;
+    if (!ss || !se || !ps || !pe) return 0;
     if (monthInRange(m, ps, pe)) return 2;
     if (ps > ss && m >= ss && m < ps) return 1;
     if (ps <= ss && (m >= ss || m < ps) && !monthInRange(m, pe === 12 ? 1 : pe+1, se)) return 1;
     if (monthInRange(m, pe === 12 ? 1 : pe+1, se)) return 3;
-    if (monthInRange(m, ss, se)) return 0;
-    return -1;
+    return 0;
   }
-  var phaseColors = {2:'#f04134', 3:'#7b4dff', 1:'#f5a623', 0:'#52c41a', '-1':'transparent'};
-  var phaseBorderColors = {2:'#f04134', 3:'#7b4dff', 1:'#f5a623', 0:'#52c41a', '-1':'#bbb'};
-  var phaseNames = {2:'盛产期', 3:'尾产期', 1:'成熟期', 0:'生长期', '-1':'暂无数据'};
-  var phasePriority = {2:4, 3:3, 1:2, 0:1, '-1':0};
+  var phaseColors = {2:'#f04134', 3:'#7b4dff', 1:'#f5a623', 0:'transparent'};
+  var phaseBorderColors = {2:'#f04134', 3:'#7b4dff', 1:'#f5a623', 0:'#52c41a'};
+  var phaseNames = {2:'盛产期', 3:'尾产期', 1:'成熟期', 0:'生长期'};
+  var phasePriority = {2:4, 3:3, 1:2, 0:1};
 
   function regionPhase(r) {
     var fids = (r.fruitIds || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
@@ -482,7 +479,7 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
   function getCityBounds(cityName, provName) { return boundsOf(((provIndex[provName] || {}).cities || {})[cityName] || []); }
 
   function buildScatterPoint(r) {
-    var ph = regionPhase(r), color = phaseColors[ph], borderColor = phaseBorderColors[ph], isHollow = ph === -1;
+    var ph = regionPhase(r), color = phaseColors[ph], borderColor = phaseBorderColors[ph], isHollow = ph === 0;
     return {
       name: r.district || r.city,
       value: [r.lng, r.lat],
@@ -490,9 +487,9 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
       level: r.level, fruitIds: r.fruitIds, adcode: r.adcode, phase: ph,
       symbolSize: isHollow ? 6 : (r.level === '核心产区' ? 10 : 7),
       itemStyle: {
-        color: isHollow ? 'transparent' : color,
+        color: color,
         borderColor: borderColor, borderWidth: isHollow ? 2 : 1.5,
-        borderType: isHollow ? 'dashed' : 'solid',
+        borderType: 'solid',
         shadowBlur: isHollow ? 0 : 4, shadowColor: isHollow ? 'transparent' : color
       }
     };
@@ -515,7 +512,7 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
       return {
         name: ck, value: [lng, lat], city: ck, province: bestReg.province,
         count: g.regs.length, phase: ph, symbolSize: 14,
-        itemStyle: { color: phaseColors[ph] || '#bbb', borderColor: '#fff', borderWidth: 2, shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.15)' }
+        itemStyle: { color: ph === 0 ? '#52c41a' : phaseColors[ph], borderColor: '#fff', borderWidth: 2, shadowBlur: 6, shadowColor: 'rgba(0,0,0,0.15)' }
       };
     });
   }
