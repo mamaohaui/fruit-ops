@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时调试文件
+_*.json
+_*.txt
+
+# 备份文件
+备存数据_*.xlsx
+*_backup_*.xlsx
+
+# 附件缓存
+.reasonix/attachments/
