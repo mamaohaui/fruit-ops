@@ -56,7 +56,6 @@ ws1.title = "水果产品库"
 
 h1 = ["水果ID", "水果名称", "水果类别", "省", "市", "县", "乡",
       "上市月份始", "上市月份末", "盛产开始月", "盛产结束月",
-      "农历产季开始月", "农历产季结束月", "农历盛产开始月", "农历盛产结束月",
       "成熟度曲线类型", "产品简介"]
 
 for c, h in enumerate(h1, 1):
@@ -275,9 +274,6 @@ fruits = [
 
 for i, row_data in enumerate(fruits):
     r = i + 2
-    # Pad 13-column arrays to 17 columns (add lunar fields between peak_end and curve_type)
-    if len(row_data) == 13:
-        row_data = row_data[:11] + [0, 0, 0, 0] + row_data[11:]
     for c, v in enumerate(row_data, 1):
         ws1.cell(row=r, column=c, value=v)
 

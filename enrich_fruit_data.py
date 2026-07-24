@@ -26,7 +26,6 @@ def add_fruit(name, category, province, city, district, town,
     fid = f'F{_id_counter:03d}'
     ws1.append([fid, name, category, province, city, district, town,
                 season_start, season_end, peak_start, peak_end,
-                0, 0, 0, 0,  # lunar fields — auto-calculated by server
                 curve_type, desc])
     return fid
 

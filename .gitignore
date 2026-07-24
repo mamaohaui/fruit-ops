@@ -11,5 +11,9 @@ _*.txt
 备存数据_*.xlsx
 *_backup_*.xlsx
 
+# 工作流中间脚本
+phase*.py
+_fix_*.py
+
 # 附件缓存
 .reasonix/attachments/

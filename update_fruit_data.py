@@ -24,11 +24,10 @@ ws_fruit = wb['水果产品库']
 ws_region = wb['产区映射表']
 ws_curve = wb['成熟度曲线']
 
-# Column indices (1-based) — 17-column schema with lunar calendar columns
+# Column indices (1-based) — 13-column schema
 F_ID, F_NAME, F_CAT, F_PROV, F_CITY, F_DIST, F_TOWN = 1,2,3,4,5,6,7
 F_SEA_START, F_SEA_END, F_PEAK_START, F_PEAK_END = 8,9,10,11
-F_LUNAR_SS, F_LUNAR_SE, F_LUNAR_PS, F_LUNAR_PE = 12,13,14,15
-F_CURVE, F_DESC = 16,17
+F_CURVE, F_DESC = 12,13
 
 R_ADCODE, R_PROV, R_CITY, R_DIST, R_TOWN, R_LNG, R_LAT, R_FIDS, R_LEVEL = 1,2,3,4,5,6,7,8,9
 
@@ -515,10 +514,7 @@ NEW_REGIONS = [
 # 5a. Add new fruits
 next_fruit_row = ws_fruit.max_row + 1
 for fruit in NEW_FRUITS:
-    # Pad 13-column arrays to 17 columns (add lunar fields between peak_end and curve_type)
-    if len(fruit) == 13:
-        fruit = fruit[:11] + [0, 0, 0, 0] + fruit[11:]
-    for c in range(1, 18):
+    for c in range(1, 14):
         ws_fruit.cell(next_fruit_row, c).value = fruit[c-1]
     next_fruit_row += 1
 print(f'Added {len(NEW_FRUITS)} new fruits to 水果产品库 (rows {ws_fruit.max_row - len(NEW_FRUITS) + 1}-{ws_fruit.max_row})')

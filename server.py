@@ -13,10 +13,11 @@ import sys
 import json
 import re
 import subprocess
+import time
 import openpyxl
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
-from zhdate import ZhDate
+
 import hashlib
 import urllib.request
 import urllib.parse
@@ -34,20 +35,42 @@ def add_cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     return response
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(BASE_DIR, 'fruit_data.xlsx')
-HTML_PATH = os.path.join(BASE_DIR, '中国水果产区数据大屏.html')
+# PyInstaller 打包适配：frozen 时 exe 目录可写，_MEIPASS 存放只读资源
+if getattr(sys, 'frozen', False):
+    _APP_DIR = os.path.dirname(sys.executable)          # exe 所在目录（可写）
+    _RES_DIR = sys._MEIPASS                              # 临时解压目录（只读）
+else:
+    _APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    _RES_DIR = _APP_DIR
+
+EXCEL_PATH = os.path.join(_APP_DIR, 'fruit_data.xlsx')
+HTML_PATH = os.path.join(_RES_DIR, '中国水果产区数据大屏.html')
+
+# 首次运行时从资源目录复制 Excel 到可写目录
+if getattr(sys, 'frozen', False) and not os.path.exists(EXCEL_PATH):
+    import shutil
+    _src = os.path.join(_RES_DIR, 'fruit_data.xlsx')
+    if os.path.exists(_src):
+        shutil.copy2(_src, EXCEL_PATH)
+        print(f'[初始化] 已复制数据文件到 {EXCEL_PATH}')
+
+# ── 内存缓存：减少重复 Excel 读取 ──
+_cache = {'data': None, 'time': 0}
+CACHE_TTL = 2  # 秒，足以覆盖页面加载时的连续 API 请求
+_html_dirty = False  # 启动时即刻生成，无需延迟
 
 # ============================================================
-# Column indices (1-based) — 17-column schema with lunar
+# Column indices (1-based) — 13-column schema
 # ============================================================
 # Sheet1: 水果产品库
 (F_ID, F_NAME, F_CAT, F_PROV, F_CITY, F_DIST, F_TOWN) = range(1, 8)
 (F_SEA_START, F_SEA_END, F_PEAK_START, F_PEAK_END) = range(8, 12)
-(F_LUNAR_SS, F_LUNAR_SE, F_LUNAR_PS, F_LUNAR_PE) = range(12, 16)
-(F_CURVE, F_DESC) = (16, 17)
+(F_CURVE, F_DESC) = (12, 13)
 
 # Sheet2: 产区映射表
 (R_ADCODE, R_PROV, R_CITY, R_DIST, R_TOWN) = range(1, 6)
@@ -61,7 +84,11 @@ C_NAME = 1  # values for months 1-12 in cols 2-13
 # Helpers: read/write Excel
 # ============================================================
 def read_excel():
-    """Read all data from Excel, return dict of {fruits, regions, curves}."""
+    """Read all data from Excel with short cache. Returns dict of {fruits, regions, curves}."""
+    now = time.time()
+    if _cache['data'] is not None and (now - _cache['time']) < CACHE_TTL:
+        return _cache['data']
+
     wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
 
     # Sheet1: 水果产品库
@@ -79,14 +106,10 @@ def read_excel():
             'city': str(ws_f.cell(r, F_CITY).value or '').strip(),
             'district': str(ws_f.cell(r, F_DIST).value or '').strip(),
             'town': str(ws_f.cell(r, F_TOWN).value or '').strip(),
-            'seasonStart': int(ws_f.cell(r, F_SEA_START).value or 1),
-            'seasonEnd': int(ws_f.cell(r, F_SEA_END).value or 12),
-            'peakStart': int(ws_f.cell(r, F_PEAK_START).value or 1),
-            'peakEnd': int(ws_f.cell(r, F_PEAK_END).value or 12),
-            'lunarSeasonStart': int(ws_f.cell(r, F_LUNAR_SS).value or 0),
-            'lunarSeasonEnd': int(ws_f.cell(r, F_LUNAR_SE).value or 0),
-            'lunarPeakStart': int(ws_f.cell(r, F_LUNAR_PS).value or 0),
-            'lunarPeakEnd': int(ws_f.cell(r, F_LUNAR_PE).value or 0),
+            'seasonStart': float(ws_f.cell(r, F_SEA_START).value or 1),
+            'seasonEnd': float(ws_f.cell(r, F_SEA_END).value or 12),
+            'peakStart': float(ws_f.cell(r, F_PEAK_START).value or 1),
+            'peakEnd': float(ws_f.cell(r, F_PEAK_END).value or 12),
             'curveType': str(ws_f.cell(r, F_CURVE).value or '').strip(),
             'desc': str(ws_f.cell(r, F_DESC).value or '').strip(),
         }
@@ -125,35 +148,83 @@ def read_excel():
         curves.append({'name': str(name).strip(), 'values': values})
 
     wb.close()
-    return {'fruits': fruits, 'regions': regions, 'curves': curves}
+    _cache['data'] = {'fruits': fruits, 'regions': regions, 'curves': curves}
+    _cache['time'] = time.time()
+    return _cache['data']
 
 
-# ── Helper: solar month (1-12) → lunar month (1-12) via zhdate ──
-REFERENCE_YEAR = 2025
+def _in_range(m, start, end):
+    """判断月份 m 是否在 [start, end] 区间内，支持跨年（start > end）。"""
+    if start <= end:
+        return start <= m <= end
+    return m >= start or m <= end
 
-def _solar_to_lunar_month(solar_month):
-    """Convert 1-based solar month to 1-based lunar month using a reference year."""
+
+def _month_diff(start, end):
+    """计算从 start 到 end 的月份跨度（含两端），支持跨年。"""
+    if start <= end:
+        return end - start + 1
+    return (12 - start + 1) + end
+
+
+def validate_season_consistency(body):
+    """校验上市期/盛产期字段是否构成合理的生命周期（支持小数月份）。
+    返回 (True, dict) 或 (False, error_message)。
+    """
     try:
-        d = ZhDate.from_datetime(datetime(REFERENCE_YEAR, max(1, min(12, solar_month)), 15))
-        return d.lunar_month
-    except Exception:
-        return 0
+        ss = float(body.get('seasonStart', 1))
+        se = float(body.get('seasonEnd', 12))
+        ps = float(body.get('peakStart', 1))
+        pe = float(body.get('peakEnd', 12))
+    except (ValueError, TypeError):
+        return False, '月份字段必须是数字'
 
+    # 1. 范围校验（1.0 ~ 12.9）
+    for name, val in [('seasonStart', ss), ('seasonEnd', se),
+                       ('peakStart', ps), ('peakEnd', pe)]:
+        if val < 1.0 or val > 12.9:
+            return False, f'{name} 必须在 1.0-12.9 之间，当前值: {val}'
 
-def _auto_fill_lunar(body):
-    """Auto-calculate lunar month fields from solar month fields."""
-    for solar_key, lunar_key in [
-        ('seasonStart', 'lunarSeasonStart'),
-        ('seasonEnd', 'lunarSeasonEnd'),
-        ('peakStart', 'lunarPeakStart'),
-        ('peakEnd', 'lunarPeakEnd'),
-    ]:
-        solar_val = body.get(solar_key)
-        if solar_val is not None and body.get(lunar_key) is None:
-            try:
-                body[lunar_key] = _solar_to_lunar_month(int(solar_val))
-            except (ValueError, TypeError):
-                body[lunar_key] = 0
+    # 2. 盛产期必须在上市期内
+    if not _in_range(ps, ss, se):
+        return False, f'盛产开始月({ps})不在上市期({ss}-{se})内'
+    if not _in_range(pe, ss, se):
+        return False, f'盛产结束月({pe})不在上市期({ss}-{se})内'
+
+    # 3. 计算各阶段长度（整月计数）
+    season_len = _month_diff(int(ss), int(se))
+    peak_len = _month_diff(int(ps), int(pe))
+
+    # 成熟期: ss → ps 之前（整月数）
+    maturity_end = int(ps) - 1 if int(ps) > 1 else 12
+    maturity_len = _month_diff(int(ss), maturity_end) if int(ps) != int(ss) else 0
+
+    # 尾产期: pe 之后 → se（整月数）
+    tail_start = int(pe) + 1 if int(pe) < 12 else 1
+    tail_len = _month_diff(tail_start, int(se)) if int(pe) != int(se) else 0
+
+    # 4. 规则校验
+    if season_len < 2:
+        return False, f'上市期总长度至少2个月，当前{season_len}个月'
+
+    if tail_len == 0:
+        return False, (
+            f'尾产期不能为0。盛产结束月({pe})等于果品结束月({se})，'
+            f'请将果品结束月延后至少1个月，或提前盛产结束月。'
+        )
+
+    if peak_len > season_len - 1:
+        return False, (
+            f'盛产期({peak_len}个月)过长，上市期共{season_len}个月。'
+            f'至少需要留1个月给尾产期。'
+        )
+
+    return True, {
+        'season_len': season_len,
+        'maturity_len': maturity_len,
+        'peak_len': peak_len,
+        'tail_len': tail_len,
+    }
 
 
 def geocode(province="", city="", district="", town=""):
@@ -189,31 +260,44 @@ def write_fruit_row(ws, row_num, fruit_data):
     ws.cell(row_num, F_CITY).value = fruit_data.get('city', '')
     ws.cell(row_num, F_DIST).value = fruit_data.get('district', '')
     ws.cell(row_num, F_TOWN).value = fruit_data.get('town', '')
-    ws.cell(row_num, F_SEA_START).value = int(fruit_data.get('seasonStart', 1))
-    ws.cell(row_num, F_SEA_END).value = int(fruit_data.get('seasonEnd', 12))
-    ws.cell(row_num, F_PEAK_START).value = int(fruit_data.get('peakStart', 1))
-    ws.cell(row_num, F_PEAK_END).value = int(fruit_data.get('peakEnd', 12))
-    ws.cell(row_num, F_LUNAR_SS).value = int(fruit_data.get('lunarSeasonStart', 0))
-    ws.cell(row_num, F_LUNAR_SE).value = int(fruit_data.get('lunarSeasonEnd', 0))
-    ws.cell(row_num, F_LUNAR_PS).value = int(fruit_data.get('lunarPeakStart', 0))
-    ws.cell(row_num, F_LUNAR_PE).value = int(fruit_data.get('lunarPeakEnd', 0))
+    ws.cell(row_num, F_SEA_START).value = float(fruit_data.get('seasonStart', 1))
+    ws.cell(row_num, F_SEA_END).value = float(fruit_data.get('seasonEnd', 12))
+    ws.cell(row_num, F_PEAK_START).value = float(fruit_data.get('peakStart', 1))
+    ws.cell(row_num, F_PEAK_END).value = float(fruit_data.get('peakEnd', 12))
     ws.cell(row_num, F_CURVE).value = fruit_data.get('curveType', '')
     ws.cell(row_num, F_DESC).value = fruit_data.get('desc', '')
 
 
+def invalidate_cache():
+    """Clear the read cache so next read_excel() hits disk."""
+    _cache['data'] = None
+    _cache['time'] = 0
+
+
 def save_and_regenerate():
-    """Save Excel, then regenerate HTML embedded data."""
-    # Regenerate embedded JSON in HTML
+    """Invalidate cache, mark HTML dirty, return current data (defers HTML write)."""
+    invalidate_cache()
+    global _html_dirty
+    _html_dirty = True
+    return read_excel()
+
+
+def regenerate_html():
+    """Actually regenerate the embedded JSON in the HTML file."""
     data = read_excel()
+    # Format month: 11.0 -> "11", 4.5 -> "4.5"
+    def _fmt_month(v):
+        if v == int(v):
+            return str(int(v))
+        return str(v)
+
     fruits_json = []
     for f in data['fruits']:
         fruits_json.append([
             f['id'], f['name'], f['category'], f['province'], f['city'],
             f['district'], f['town'],
-            str(f['seasonStart']), str(f['seasonEnd']),
-            str(f['peakStart']), str(f['peakEnd']),
-            str(f['lunarSeasonStart']), str(f['lunarSeasonEnd']),
-            str(f['lunarPeakStart']), str(f['lunarPeakEnd']),
+            _fmt_month(f['seasonStart']), _fmt_month(f['seasonEnd']),
+            _fmt_month(f['peakStart']), _fmt_month(f['peakEnd']),
             f['curveType'], f['desc'],
         ])
     regions_json = []
@@ -233,9 +317,13 @@ def save_and_regenerate():
 
     with open(HTML_PATH, 'r', encoding='utf-8') as f:
         html = f.read()
+    # 使用 lambda replacement 防止 re.sub 对 JSON 中的 \n \t 等序列进行二次转义
     pattern = r'var EMBEDDED_DATA = \{.*?\};'
-    replacement = 'var EMBEDDED_DATA = ' + embedded + ';'
-    html_new = re.sub(pattern, replacement, html, count=1, flags=re.DOTALL)
+    html_new = re.sub(
+        pattern,
+        lambda _: 'var EMBEDDED_DATA = ' + embedded + ';',
+        html, count=1, flags=re.DOTALL
+    )
     if html_new != html:
         with open(HTML_PATH, 'w', encoding='utf-8') as f:
             f.write(html_new)
@@ -265,7 +353,11 @@ def generate_next_fruit_id(wb):
 
 @app.route('/')
 def index():
-    """Serve the dashboard HTML."""
+    """Serve the dashboard HTML, regenerating embedded data if stale."""
+    global _html_dirty
+    if _html_dirty:
+        regenerate_html()
+        _html_dirty = False
     return send_file(HTML_PATH)
 
 
@@ -317,8 +409,11 @@ def create_fruit():
     ws = wb['水果产品库']
     ws_r = wb['产区映射表']
 
-    # Auto-calculate lunar fields from solar fields
-    _auto_fill_lunar(body)
+    # 验证生命周期一致性
+    valid, result = validate_season_consistency(body)
+    if not valid:
+        wb.close()
+        return jsonify({'error': result}), 400
 
     # Generate new ID
     new_id = generate_next_fruit_id(wb)
@@ -386,14 +481,10 @@ def update_fruit(fruit_id):
         'city': str(ws.cell(target_row, F_CITY).value or '').strip(),
         'district': str(ws.cell(target_row, F_DIST).value or '').strip(),
         'town': str(ws.cell(target_row, F_TOWN).value or '').strip(),
-        'seasonStart': int(ws.cell(target_row, F_SEA_START).value or 1),
-        'seasonEnd': int(ws.cell(target_row, F_SEA_END).value or 12),
-        'peakStart': int(ws.cell(target_row, F_PEAK_START).value or 1),
-        'peakEnd': int(ws.cell(target_row, F_PEAK_END).value or 12),
-        'lunarSeasonStart': int(ws.cell(target_row, F_LUNAR_SS).value or 0),
-        'lunarSeasonEnd': int(ws.cell(target_row, F_LUNAR_SE).value or 0),
-        'lunarPeakStart': int(ws.cell(target_row, F_LUNAR_PS).value or 0),
-        'lunarPeakEnd': int(ws.cell(target_row, F_LUNAR_PE).value or 0),
+        'seasonStart': float(ws.cell(target_row, F_SEA_START).value or 1),
+        'seasonEnd': float(ws.cell(target_row, F_SEA_END).value or 12),
+        'peakStart': float(ws.cell(target_row, F_PEAK_START).value or 1),
+        'peakEnd': float(ws.cell(target_row, F_PEAK_END).value or 12),
         'curveType': str(ws.cell(target_row, F_CURVE).value or '').strip(),
         'desc': str(ws.cell(target_row, F_DESC).value or '').strip(),
     }
@@ -401,16 +492,18 @@ def update_fruit(fruit_id):
     for key in current:
         if key in body and body[key] is not None:
             val = body[key]
-            if key in ('seasonStart', 'seasonEnd', 'peakStart', 'peakEnd',
-                       'lunarSeasonStart', 'lunarSeasonEnd', 'lunarPeakStart', 'lunarPeakEnd'):
-                try: val = int(val)
+            if key in ('seasonStart', 'seasonEnd', 'peakStart', 'peakEnd'):
+                try: val = float(val)
                 except: val = current[key]
             if isinstance(val, str):
                 val = val.strip()
             current[key] = val
 
-    # Auto-calculate lunar fields from solar fields
-    _auto_fill_lunar(current)
+    # 验证生命周期一致性
+    valid, result = validate_season_consistency(current)
+    if not valid:
+        wb.close()
+        return jsonify({'error': result}), 400
 
     write_fruit_row(ws, target_row, current)
 
@@ -494,12 +587,103 @@ def get_regions():
     return jsonify(data['regions'])
 
 
+@app.route('/api/regions', methods=['POST'])
+def create_region():
+    """创建独立产区行（不强制关联水果）。"""
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'Request body required'}), 400
+
+    province = (body.get('province', '') or '').strip()
+    city = (body.get('city', '') or '').strip()
+    if not province:
+        return jsonify({'error': '缺少必填字段: province'}), 400
+    if not city:
+        return jsonify({'error': '缺少必填字段: city'}), 400
+
+    district = (body.get('district', '') or '').strip()
+    town = (body.get('town', '') or '').strip()
+    # 若未提供 adcode，使用时间戳生成一个唯一标识
+    adcode = (body.get('adcode', '') or '').strip()
+    if not adcode:
+        adcode = '9' + str(int(time.time() * 1000))[-8:]
+    level = (body.get('level', '') or '').strip()
+    if not level:
+        level = '一般产区'
+
+    try:
+        lng = float(body.get('lng', 0))
+    except (ValueError, TypeError):
+        lng = 0
+    try:
+        lat = float(body.get('lat', 0))
+    except (ValueError, TypeError):
+        lat = 0
+    if lng == 0 and lat == 0:
+        lng, lat = geocode(province, city, district, town)
+
+    fruit_ids = (body.get('fruitIds', '') or '').strip()
+
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    ws_r = wb['产区映射表']
+    new_row = ws_r.max_row + 1
+    ws_r.cell(new_row, R_ADCODE).value = adcode
+    ws_r.cell(new_row, R_PROV).value = province
+    ws_r.cell(new_row, R_CITY).value = city
+    ws_r.cell(new_row, R_DIST).value = district
+    ws_r.cell(new_row, R_TOWN).value = town
+    ws_r.cell(new_row, R_LNG).value = lng
+    ws_r.cell(new_row, R_LAT).value = lat
+    ws_r.cell(new_row, R_FIDS).value = fruit_ids
+    ws_r.cell(new_row, R_LEVEL).value = level
+    wb.save(EXCEL_PATH)
+    wb.close()
+
+    data = save_and_regenerate()
+    created = next((r for r in data['regions'] if r['adcode'] == adcode), None)
+    return jsonify(created), 201
+
+
 # ---- Curves ----
 
 @app.route('/api/curves', methods=['GET'])
 def get_curves():
     data = read_excel()
     return jsonify(data['curves'])
+
+
+# ---- Markets ----
+
+# 市场表头列索引（1-based，对应「农批市场」Sheet）
+(M_ID, M_PROV, M_NAME, M_CITY, M_LEVEL, M_ADDR,
+ M_COVERAGE, M_PRODUCTS, M_NOTES, M_LNG, M_LAT) = range(1, 12)
+
+
+@app.route('/api/markets', methods=['GET'])
+def get_markets():
+    """返回全国农批市场数据（从 Excel「农批市场」Sheet 读取）。"""
+    markets = []
+    wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
+    if '农批市场' in wb.sheetnames:
+        ws = wb['农批市场']
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or not row[1]:  # 跳过无市场名称的空行
+                continue
+            markets.append({
+                'id': str(row[M_ID-1] or '').strip(),
+                'province': str(row[M_PROV-1] or '').strip(),
+                'name': str(row[M_NAME-1] or '').strip(),
+                'city': str(row[M_CITY-1] or '').strip(),
+                'level': str(row[M_LEVEL-1] or '').strip(),
+                'address': str(row[M_ADDR-1] or '').strip(),
+                'coverage': str(row[M_COVERAGE-1] or '').strip(),
+                'products': str(row[M_PRODUCTS-1] or '').strip(),
+                'notes': str(row[M_NOTES-1] or '').strip(),
+                'lng': float(row[M_LNG-1]) if row[M_LNG-1] else 0,
+                'lat': float(row[M_LAT-1]) if row[M_LAT-1] else 0,
+            })
+    wb.close()
+    return jsonify(markets)
 
 
 # ---- Excel Download ----
@@ -604,7 +788,6 @@ def sync_all():
         ws_f.delete_rows(r)
     for i, f in enumerate(fruits_data):
         row_num = i + 2
-        _auto_fill_lunar(f)
         write_fruit_row(ws_f, row_num, f)
 
     # 重写 Sheet2: 产区映射表
@@ -669,5 +852,10 @@ if __name__ == '__main__':
     print(f'Starting Fruit Dashboard API server...')
     print(f'Excel: {EXCEL_PATH}')
     print(f'HTML:  {HTML_PATH}')
-    print(f'Open http://localhost:5000/ in browser')
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # 启动时预生成 HTML 嵌入数据（避免首次请求卡顿）
+    try:
+        regenerate_html()
+        print(f'[就绪] HTML 数据已嵌入，访问 http://localhost:5000/')
+    except Exception as e:
+        print(f'[警告] HTML 预生成失败（将在首次请求时重试）: {e}')
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
