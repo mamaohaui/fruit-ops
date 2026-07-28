@@ -1,4 +1,4 @@
-# 🍎 中国水果产区数据大屏 · China Fruit Production Dashboard
+# 中国水果产区数据大屏 · China Fruit Production Dashboard
 
 [![Python](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-2.0+-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
