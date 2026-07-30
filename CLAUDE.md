@@ -20,14 +20,11 @@ C:\fruit-ops\
 ├── CLAUDE.md                       # 本文件
 ├── reasonix.toml                   # AI 权限配置
 ├── server.py                       # Flask REST API（CRUD on Excel）
-├── fruit_data.xlsx                 # 数据存储（3个Sheet）
-├── 中国水果产区数据.html        # ECharts 交互式地图
+├── fruit_data.xlsx                 # 数据存储（4个Sheet）
+├── 中国水果产区数据大屏.html    # ECharts 交互式地图
 ├── generate_fruit_data.py          # 从权威来源生成水果数据
 ├── update_fruit_data.py            # 数据质量修复 + 新增50种水果
-├── enrich_fruit_data.py            # 增加西瓜、菠萝、樱桃等品种
-├── apply_season_colors.py          # 添加基于季节的渐变配色
-├── _data_summary.json              # 省份/城市统计摘要
-└── _sheet_names_check.txt          # Sheet名称校验记录
+└── enrich_fruit_data.py            # 增加西瓜、菠萝、樱桃等品种
 ```
 
 ## 架构
@@ -36,10 +33,10 @@ C:\fruit-ops\
 Flask server.py  ◄─── HTTP REST API ───► 中国水果产区数据大屏.html
       │
       ▼
-openpyxl ──► fruit_data.xlsx（3个Sheet）
+openpyxl ──► fruit_data.xlsx（4个Sheet）
       │
       ▼ (重新生成嵌入式 JSON)
-  中国水果产区数据.html (ECharts 地图)
+  中国水果产区数据大屏.html (ECharts 地图)
 ```
 
 ## AI 行为准则
