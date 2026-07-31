@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中国水果产区数据源 — 权威网站大全</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card: #fff;
+    --text: #2c3e50;
+    --text-dim: #7f8c8d;
+    --accent: #27ae60;
+    --border: #e9ecef;
+    --tag-bg: #e8f5e9;
+    --tag-text: #2e7d32;
+    --star: #f39c12;
+    --link: #2980b9;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 2rem;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* 头部 */
+  header {
+    text-align: center; padding: 2rem 0 3rem;
+    border-bottom: 2px solid var(--border); margin-bottom: 2.5rem;
+  }
+  header h1 { font-size: 2rem; color: var(--text); margin-bottom: .5rem; }
+  header p { color: var(--text-dim); font-size: .95rem; }
+  .meta { margin-top: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .meta span {
+    background: var(--tag-bg); color: var(--tag-text);
+    padding: 3px 12px; border-radius: 20px; font-size: .8rem;
+  }
+
+  /* 分区 */
+  section { margin-bottom: 2.5rem; }
+  section h2 {
+    font-size: 1.3rem; margin-bottom: 1rem; padding-bottom: .5rem;
+    border-bottom: 2px solid var(--accent); display: flex; align-items: center; gap: .5rem;
+  }
+  section h2 .icon { font-size: 1.4rem; }
+
+  /* 统计小结 */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem; margin-bottom: 2.5rem;
+  }
+  .stat-card {
+    background: var(--card); border-radius: 10px; padding: 1.2rem;
+    text-align: center; border: 1px solid var(--border);
+  }
+  .stat-card .num { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .stat-card .label { font-size: .85rem; color: var(--text-dim); margin-top: .2rem; }
+
+  /* 网站卡片 */
+  .site-list { display: grid; gap: .75rem; }
+  .site-card {
+    background: var(--card); border-radius: 8px; padding: 1rem 1.2rem;
+    border: 1px solid var(--border); transition: box-shadow .15s;
+    display: flex; align-items: flex-start; gap: 1rem;
+  }
+  .site-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  .site-card .rank {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--tag-bg); color: var(--tag-text);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700;
+  }
+  .site-card .rank.star { background: #fff3cd; color: #b8860b; }
+  .site-card .info { flex: 1; min-width: 0; }
+  .site-card .name { font-weight: 600; font-size: .95rem; }
+  .site-card .url {
+    font-size: .8rem; color: var(--link); word-break: break-all;
+    margin: .2rem 0;
+  }
+  .site-card .url a { color: inherit; text-decoration: none; }
+  .site-card .url a:hover { text-decoration: underline; }
+  .site-card .desc { font-size: .82rem; color: var(--text-dim); }
+  .site-card .tags { margin-top: .35rem; display: flex; gap: .4rem; flex-wrap: wrap; }
+  .site-card .tags span {
+    font-size: .72rem; padding: 2px 8px; border-radius: 4px;
+    background: #eef2f8; color: #5a6a7e;
+  }
+  .site-card .tags span.hit { background: #fff3cd; color: #b8860b; }
+
+  /* 查询路径 */
+  .flow {
+    background: var(--card); border-radius: 10px; padding: 1.5rem;
+    border: 1px solid var(--border); font-family: "SF Mono", "Cascadia Code", monospace;
+    font-size: .88rem; line-height: 2; white-space: pre;
+  }
+
+  /* 本项目引用 */
+  .ref-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  .ref-table th, .ref-table td {
+    padding: .6rem .8rem; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .ref-table th { background: #f8f9fa; font-weight: 600; color: var(--text-dim); font-size: .78rem; }
+  .ref-table tr:hover td { background: #fafbfc; }
+
+  /* 页脚 */
+  footer {
+    text-align: center; padding: 2rem 0 1rem; color: var(--text-dim);
+    font-size: .82rem; border-top: 1px solid var(--border); margin-top: 3rem;
+  }
+
+  @media (max-width: 768px) {
+    body { padding: 1rem; }
+    .site-card { flex-direction: column; gap: .5rem; }
+    .ref-table { font-size: .78rem; }
+    .ref-table th, .ref-table td { padding: .4rem .5rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>🍊 中国水果产区数据源</h1>
+  <p>权威网站大全 — 地理标志 · 名特优新 · 产地行情 · 品种查询</p>
+  <div class="meta">
+    <span>整理时间：2026年7月</span>
+    <span>数据来源：政府及行业权威机构</span>
+    <span>覆盖全国31省</span>
+  </div>
+</header>
+
+<!-- 统计 -->
+<div class="stats">
+  <div class="stat-card"><div class="num">440</div><div class="label">已收录水果品种</div></div>
+  <div class="stat-card"><div class="num">428</div><div class="label">产区映射条目</div></div>
+  <div class="stat-card"><div class="num">31</div><div class="label">省份覆盖</div></div>
+  <div class="stat-card"><div class="num">30+</div><div class="label">引用数据源网站</div></div>
+</div>
+
+<!-- 一、国家级官方平台 -->
+<section>
+  <h2><span class="icon">🏛️</span> 一、国家级官方查询平台（最权威）</h2>
+  <div class="site-list">
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">全国农产品地理标志登记产品查询</div>
+        <div class="url"><a href="http://www.greenfood.agri.cn/xxcx/dlbzcx/" target="_blank">greenfood.agri.cn/xxcx/dlbzcx/</a></div>
+        <div class="desc">农业农村部直属，可查询全国所有获证农产品地理标志（含水果），按年份/名称/产地检索，权威性最高。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>地理标志</span><span>官方数据库</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">全国名特优新农产品名录</div>
+        <div class="url"><a href="http://mtyx.aqsc.org/Home/Minglu/index.html" target="_blank">mtyx.aqsc.org</a></div>
+        <div class="desc">农业农村部农产品质量安全中心运营，8036+条以县域为单元的特色农产品（含大量水果），支持在线检索。本项目新增水果品种的主要数据来源。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>名特优新</span><span>县域农产品</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">绿色食品信息查询中心</div>
+        <div class="url"><a href="http://www.greenfood.agri.cn/xxcx/" target="_blank">greenfood.agri.cn/xxcx/</a></div>
+        <div class="desc">绿色食品 + 地理标志农产品 + 有机产品，一网打尽。</div>
+        <div class="tags"><span>绿色食品</span><span>有机认证</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">4</div>
+      <div class="info">
+        <div class="name">国家知识产权局地理标志产品检索</div>
+        <div class="url"><a href="https://www.cnipa.gov.cn/" target="_blank">cnipa.gov.cn</a></div>
+        <div class="desc">查询地理标志保护产品批准公告，含水果类GI产品。</div>
+        <div class="tags"><span>GI产品</span><span>公告查询</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">5</div>
+      <div class="info">
+        <div class="name">中国商标网（地理标志商标）</div>
+        <div class="url"><a href="http://sbj.cnipa.gov.cn/" target="_blank">sbj.cnipa.gov.cn</a></div>
+        <div class="desc">集体商标/证明商标注册的地理标志查询。</div>
+        <div class="tags"><span>商标查询</span><span>证明商标</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">6</div>
+      <div class="info">
+        <div class="name">中欧地理标志协定名录</div>
+        <div class="url"><a href="https://ipr.mofcom.gov.cn/hwwq_2/chn_eu_gi/chn/chn-cat-02-1.6.html" target="_blank">ipr.mofcom.gov.cn</a></div>
+        <div class="desc">商务部发布，含百色芒果、赣南脐橙、文登苹果等中欧互认水果清单。</div>
+        <div class="tags"><span>中欧互认</span><span>商务部</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 二、地理标志 & 特产专门网站 -->
+<section>
+  <h2><span class="icon">🏷️</span> 二、地理标志 &amp; 地方特产专门网站</h2>
+  <div class="site-list">
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">芸果轩 · 地标水果</div>
+        <div class="url"><a href="https://www.yunguoxuan.com/landmark/" target="_blank">yunguoxuan.com/landmark/</a></div>
+        <div class="desc"><strong>强烈推荐</strong> — 按水果品类、省份分类展示所有国家地理标志水果，一站式查看"中国各省市都出产什么水果"。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>地标水果大全</span><span>按省份筛选</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">地标特产大全（sinogi.cn）</div>
+        <div class="url"><a href="https://www.sinogi.cn/" target="_blank">sinogi.cn</a></div>
+        <div class="desc">地理标志原产地特产信息大全，每个产品有详细的原产地范围、品质特征、认证编号。本项目数据核实的主要来源。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>GI认证详情</span><span>产地范围</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">3</div>
+      <div class="info">
+        <div class="name">地理标志网</div>
+        <div class="url"><a href="https://www.cpgi.org.cn/" target="_blank">cpgi.org.cn</a></div>
+        <div class="desc">地理标志行业门户，含各地水果标准动态和公告。</div>
+        <div class="tags"><span>行业门户</span><span>标准动态</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">4</div>
+      <div class="info">
+        <div class="name">国家地理标志产品名录（CGN）</div>
+        <div class="url"><a href="https://cgn.ac.cn/" target="_blank">cgn.ac.cn</a></div>
+        <div class="desc">2023最新全集，囊括全国各地优质特产水果。</div>
+        <div class="tags"><span>最新名录</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">5</div>
+      <div class="info">
+        <div class="name">中华特产网</div>
+        <div class="url"><a href="https://www.zhtechan.cn/" target="_blank">zhtechan.cn</a></div>
+        <div class="desc">按地域展示地方特产（含水果），有详细的品种和产地介绍。</div>
+        <div class="tags"><span>地方特产</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">6</div>
+      <div class="info">
+        <div class="name">特产谷</div>
+        <div class="url"><a href="https://m.tesegu.com/techan/ts_shuiguo/" target="_blank">tesegu.com</a></div>
+        <div class="desc">特产水果介绍及购买推荐，含国家地理标志水果品种。</div>
+        <div class="tags"><span>品种介绍</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 三、行业数据 & 行情平台 -->
+<section>
+  <h2><span class="icon">📊</span> 三、行业资讯 &amp; 数据平台</h2>
+  <div class="site-list">
+
+    <div class="site-card">
+      <div class="rank star">★</div>
+      <div class="info">
+        <div class="name">农小蜂 / 唯恒农业</div>
+        <div class="url"><a href="https://www.weihengag.com/" target="_blank">weihengag.com</a> &nbsp;|&nbsp; <a href="https://www.abeedata.com/" target="_blank">abeedata.com</a></div>
+        <div class="desc">各水果品种产业报告（苹果/柑橘/葡萄/热带水果），含分省产量、面积、产区数据，是撰写水果品种描述的重要参考。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>产业报告</span><span>分省数据</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">2</div>
+      <div class="info">
+        <div class="name">一亩田 · 产地行情</div>
+        <div class="url"><a href="https://www.cnhnb.com/hangqing/" target="_blank">cnhnb.com/hangqing/</a></div>
+        <div class="desc">实时产地行情，按品种+产地精确到县。可用于验证水果上市时间、供应周期。</div>
+        <div class="tags"><span class="hit">本项目引用</span><span>实时行情</span><span>精确到县</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">3</div>
+      <div class="info">
+        <div class="name">亚洲水果（Asia Fruit）</div>
+        <div class="url"><a href="https://asiafruitchina.net/" target="_blank">asiafruitchina.net</a></div>
+        <div class="desc">果蔬品项分类，含荔枝、龙眼等热带水果产区和国际贸易信息。</div>
+        <div class="tags"><span>国际视野</span><span>热带水果</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">4</div>
+      <div class="info">
+        <div class="name">FreshPlaza 中国</div>
+        <div class="url"><a href="https://www.freshplaza.cn/" target="_blank">freshplaza.cn</a></div>
+        <div class="desc">全球果蔬产区动态，了解国际水果产季和市场趋势。</div>
+        <div class="tags"><span>全球动态</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">5</div>
+      <div class="info">
+        <div class="name">全国农产品批发市场价格信息系统</div>
+        <div class="url"><a href="https://pfsc.agri.cn/" target="_blank">pfsc.agri.cn</a></div>
+        <div class="desc">农业农村部旗下价格数据，可用于验证水果盛产期和供需关系。</div>
+        <div class="tags"><span>价格数据</span><span>农业农村部</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">6</div>
+      <div class="info">
+        <div class="name">中国农业农村信息网</div>
+        <div class="url"><a href="https://www.agri.cn/" target="_blank">agri.cn</a></div>
+        <div class="desc">全国农业农村综合信息，政策发布和行业动态。</div>
+        <div class="tags"><span>综合信息</span></div>
+      </div>
+    </div>
+
+    <div class="site-card">
+      <div class="rank">7</div>
+      <div class="info">
+        <div class="name">观研报告网</div>
+        <div class="url"><a href="https://www.chinabaogao.com/" target="_blank">chinabaogao.com</a></div>
+        <div class="desc">深度水果行业研究报告，含市场规模、产区分布、品种分析。</div>
+        <div class="tags"><span>行业报告</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 四、各省农业厅 -->
+<section>
+  <h2><span class="icon">🗺️</span> 四、各省农业农村厅官网</h2>
+  <p style="color:var(--text-dim);margin-bottom:1rem;font-size:.88rem;">
+    湖南省农业农村厅汇总页：
+    <a href="https://agri.hunan.gov.cn/agri/yqlj/sjwz/index.html" target="_blank">agri.hunan.gov.cn/agri/yqlj/sjwz/</a>
+    — 直达全国各省农业农村厅官网
+  </p>
+
+  <table class="ref-table">
+    <thead>
+      <tr><th>省份</th><th>农业农村厅网址</th><th>代表性特色水果</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>广西</td><td><a href="http://nynct.gxzf.gov.cn/" target="_blank">nynct.gxzf.gov.cn</a></td><td>百色芒果、武鸣沃柑、容县沙田柚、灵山荔枝</td></tr>
+      <tr><td>陕西</td><td><a href="http://nynct.shaanxi.gov.cn/" target="_blank">nynct.shaanxi.gov.cn</a></td><td>洛川苹果、眉县猕猴桃、周至猕猴桃、临潼石榴</td></tr>
+      <tr><td>山东</td><td><a href="http://nync.shandong.gov.cn/" target="_blank">nync.shandong.gov.cn</a></td><td>烟台苹果、莱阳梨、肥城桃、沾化冬枣</td></tr>
+      <tr><td>新疆</td><td><a href="http://www.xjncc.cn/" target="_blank">xjncc.cn</a></td><td>阿克苏苹果、库尔勒香梨、吐鲁番葡萄、哈密瓜</td></tr>
+      <tr><td>广东</td><td><a href="http://dara.gd.gov.cn/" target="_blank">dara.gd.gov.cn</a></td><td>增城荔枝、徐闻菠萝、梅州金柚、德庆贡柑</td></tr>
+      <tr><td>海南</td><td><a href="https://agri.hainan.gov.cn/" target="_blank">agri.hainan.gov.cn</a></td><td>三亚芒果、琼中绿橙、澄迈福橙、保亭红毛丹</td></tr>
+      <tr><td>四川</td><td><a href="http://nynct.sc.gov.cn/" target="_blank">nynct.sc.gov.cn</a></td><td>攀枝花芒果、龙泉驿水蜜桃、蒲江猕猴桃、安岳柠檬</td></tr>
+      <tr><td>云南</td><td><a href="https://nync.yn.gov.cn/" target="_blank">nync.yn.gov.cn</a></td><td>昭通苹果、元江芒果、宾川葡萄、蒙自石榴</td></tr>
+      <tr><td>浙江</td><td><a href="https://nynct.zj.gov.cn/" target="_blank">nynct.zj.gov.cn</a></td><td>奉化水蜜桃、仙居杨梅、常山胡柚、临海蜜桔</td></tr>
+      <tr><td>湖南</td><td><a href="https://agri.hunan.gov.cn/" target="_blank">agri.hunan.gov.cn</a></td><td>麻阳冰糖橙、崀山脐橙、石门柑橘、江永香柚</td></tr>
+      <tr><td>福建</td><td><a href="https://nynct.fujian.gov.cn/" target="_blank">nynct.fujian.gov.cn</a></td><td>平和蜜柚、永春芦柑、莆田荔枝、云霄枇杷</td></tr>
+      <tr><td>湖北</td><td><a href="https://nyt.hubei.gov.cn/" target="_blank">nyt.hubei.gov.cn</a></td><td>秭归脐橙、罗田板栗、随州蜜枣、宜昌蜜桔</td></tr>
+      <tr><td>贵州</td><td><a href="http://nynct.guizhou.gov.cn/" target="_blank">nynct.guizhou.gov.cn</a></td><td>修文猕猴桃、从江椪柑、罗甸火龙果</td></tr>
+      <tr><td>甘肃</td><td><a href="http://nync.gansu.gov.cn/" target="_blank">nync.gansu.gov.cn</a></td><td>天水花牛苹果、静宁苹果、兰州白兰瓜</td></tr>
+      <tr><td>河南</td><td><a href="http://nynct.henan.gov.cn/" target="_blank">nynct.henan.gov.cn</a></td><td>灵宝苹果、西峡猕猴桃、新郑大枣</td></tr>
+      <tr><td>河北</td><td><a href="http://nync.hebei.gov.cn/" target="_blank">nync.hebei.gov.cn</a></td><td>赵县鸭梨、深州蜜桃、沧州金丝小枣</td></tr>
+      <tr><td>江苏</td><td><a href="http://nynct.jiangsu.gov.cn/" target="_blank">nynct.jiangsu.gov.cn</a></td><td>阳山水蜜桃、东山白玉枇杷、泰兴白果</td></tr>
+      <tr><td>安徽</td><td><a href="http://nync.ahnw.gov.cn/" target="_blank">nync.ahnw.gov.cn</a></td><td>砀山酥梨、怀远石榴、三潭枇杷</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 五、本项目数据引用 -->
+<section>
+  <h2><span class="icon">📋</span> 五、本项目数据引用一览</h2>
+  <table class="ref-table">
+    <thead>
+      <tr><th>数据来源</th><th>网站</th><th>引用用途</th><th>覆盖内容</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>百度搜索</td><td>—</td><td>盛产期/成熟期核实</td><td>各水果品种的具体月份、跨年采收等时间节点</td></tr>
+      <tr><td>全国名特优新农产品名录</td><td>mtyx.aqsc.org</td><td>品种发现 + 产地确认</td><td>县域特色水果品种及产区信息</td></tr>
+      <tr><td>地标特产大全</td><td>sinogi.cn</td><td>地理标志认证核实</td><td>GI编号、保护范围、品种特征、上市时间</td></tr>
+      <tr><td>全国农产品地理标志查询</td><td>greenfood.agri.cn</td><td>官方认证核实</td><td>地理标志证书信息、产地范围</td></tr>
+      <tr><td>芸果轩 · 地标水果</td><td>yunguoxuan.com</td><td>品种发现</td><td>按省份/品类浏览全国地标水果</td></tr>
+      <tr><td>一亩田产地行情</td><td>cnhnb.com</td><td>上市时间验证</td><td>实时产地供应时间线</td></tr>
+      <tr><td>农小蜂产业报告</td><td>weihengag.com</td><td>品种描述撰写</td><td>种植面积、产量规模、产业地位</td></tr>
+      <tr><td>各省农业农村厅</td><td>见上表</td><td>代表性水果确认</td><td>各省官方推荐的代表性特色水果清单</td></tr>
+      <tr><td>中欧地理标志协定名录</td><td>ipr.mofcom.gov.cn</td><td>国际互认核实</td><td>中欧互认水果品种确认</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 六、推荐查询路径 -->
+<section>
+  <h2><span class="icon">🧭</span> 六、推荐查询路径</h2>
+  <div class="flow">┌─────────────────────────────────────────────────────┐
+│ <strong>🎯 需要某个水果是哪里产的？</strong>                            │
+│   ↓                                                     │
+│ <strong>芸果轩地标水果</strong> (yunguoxuan.com/landmark)               │
+│ → 按品类/省份一目了然，最快找到所有产区                 │
+├─────────────────────────────────────────────────────┤
+│ <strong>🎯 需要官方认证信息（GI编号/产地范围）？</strong>                │
+│   ↓                                                     │
+│ <strong>全国农产品地理标志查询</strong> (greenfood.agri.cn)             │
+│   + <strong>地标特产大全</strong> (sinogi.cn) — 查看详细认证信息         │
+├─────────────────────────────────────────────────────┤
+│ <strong>🎯 需要知道某个县有什么特色水果？</strong>                       │
+│   ↓                                                     │
+│ <strong>全国名特优新农产品名录</strong> (mtyx.aqsc.org)                 │
+│ → 以县域为单元，8036+条记录                            │
+├─────────────────────────────────────────────────────┤
+│ <strong>🎯 需要核实盛产期/上市时间？</strong>                           │
+│   ↓                                                     │
+│ <strong>一亩田产地行情</strong> (cnhnb.com/hangqing)                    │
+│   + <strong>百度搜索</strong> "水果名 + 盛产期/成熟期/上市时间"          │
+├─────────────────────────────────────────────────────┤
+│ <strong>🎯 需要产业数据（种植面积/产量/产值）？</strong>                  │
+│   ↓                                                     │
+│ <strong>农小蜂</strong> (weihengag.com) 产业报告                       │
+│   + <strong>各省农业农村厅</strong> 官方统计数据                       │
+├─────────────────────────────────────────────────────┤
+│ <strong>🎯 需要核实是否中欧互认？</strong>                               │
+│   ↓                                                     │
+│ <strong>中欧地理标志协定名录</strong> (ipr.mofcom.gov.cn)               │
+└─────────────────────────────────────────────────────┘</div>
+</section>
+
+<footer>
+  <p>中国水果产区数据大屏项目 · 数据源文档</p>
+  <p>所有收录网站均为政府或行业权威机构，数据截至2026年7月</p>
+  <p style="margin-top:.5rem;">项目地址：<a href="https://github.com/maohuaim/fruit-ops" target="_blank">github.com/maohuaim/fruit-ops</a></p>
+</footer>
+
+</div>
+</body>
+</html>
