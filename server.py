@@ -644,6 +644,109 @@ def create_region():
     return jsonify(created), 201
 
 
+@app.route('/api/regions/<adcode>', methods=['PUT'])
+def update_region(adcode):
+    """更新单个产区（省份/城市/区县/乡镇/等级/坐标）。"""
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'Request body required'}), 400
+
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    ws_r = wb['产区映射表']
+
+    # 查找目标行
+    target_row = None
+    for r in range(2, ws_r.max_row + 1):
+        cur_adcode = str(ws_r.cell(r, R_ADCODE).value or '').strip()
+        if cur_adcode == adcode:
+            target_row = r
+            break
+
+    if target_row is None:
+        wb.close()
+        return jsonify({'error': f'产区 {adcode} 未找到'}), 404
+
+    # 读取当前行所有字段
+    current = {
+        'adcode': str(ws_r.cell(target_row, R_ADCODE).value or '').strip(),
+        'province': str(ws_r.cell(target_row, R_PROV).value or '').strip(),
+        'city': str(ws_r.cell(target_row, R_CITY).value or '').strip(),
+        'district': str(ws_r.cell(target_row, R_DIST).value or '').strip(),
+        'town': str(ws_r.cell(target_row, R_TOWN).value or '').strip(),
+        'lng': float(ws_r.cell(target_row, R_LNG).value or 0),
+        'lat': float(ws_r.cell(target_row, R_LAT).value or 0),
+        'fruitIds': str(ws_r.cell(target_row, R_FIDS).value or '').strip(),
+        'level': str(ws_r.cell(target_row, R_LEVEL).value or '').strip(),
+    }
+
+    # 合并：body 中有值的字段覆盖 current
+    str_fields = ['province', 'city', 'district', 'town', 'fruitIds', 'level']
+    for key in str_fields:
+        if key in body and body[key] is not None:
+            current[key] = str(body[key]).strip()
+
+    for key in ['lng', 'lat']:
+        if key in body and body[key] is not None:
+            try:
+                current[key] = float(body[key])
+            except (ValueError, TypeError):
+                pass
+
+    # 若省份/城市变了且坐标为 0，调用高德 API 补全
+    if current['lng'] == 0 and current['lat'] == 0:
+        new_lng, new_lat = geocode(
+            current['province'], current['city'],
+            current['district'], current['town'])
+        if new_lng != 0 or new_lat != 0:
+            current['lng'], current['lat'] = new_lng, new_lat
+
+    # 如果 body 明确提供了非零坐标，优先使用
+    if body.get('lng') is not None:
+        try:
+            current['lng'] = float(body['lng'])
+        except (ValueError, TypeError):
+            pass
+    if body.get('lat') is not None:
+        try:
+            current['lat'] = float(body['lat'])
+        except (ValueError, TypeError):
+            pass
+
+    # 写入 Excel
+    ws_r.cell(target_row, R_ADCODE).value = current['adcode']
+    ws_r.cell(target_row, R_PROV).value = current['province']
+    ws_r.cell(target_row, R_CITY).value = current['city']
+    ws_r.cell(target_row, R_DIST).value = current['district']
+    ws_r.cell(target_row, R_TOWN).value = current['town']
+    ws_r.cell(target_row, R_LNG).value = current['lng']
+    ws_r.cell(target_row, R_LAT).value = current['lat']
+    ws_r.cell(target_row, R_FIDS).value = current['fruitIds']
+    ws_r.cell(target_row, R_LEVEL).value = current['level'] or '一般产区'
+
+    # 如果地址字段变了，同步更新关联水果的地址
+    if any(k in body for k in ['province', 'city', 'district', 'town']):
+        ws_f = wb['水果产品库']
+        fids = [x.strip() for x in current['fruitIds'].split(',') if x.strip()]
+        for fr in range(2, ws_f.max_row + 1):
+            fruit_id = str(ws_f.cell(fr, F_ID).value or '').strip()
+            if fruit_id in fids:
+                if 'province' in body:
+                    ws_f.cell(fr, F_PROV).value = current['province']
+                if 'city' in body:
+                    ws_f.cell(fr, F_CITY).value = current['city']
+                if 'district' in body:
+                    ws_f.cell(fr, F_DIST).value = current['district']
+                if 'town' in body:
+                    ws_f.cell(fr, F_TOWN).value = current['town']
+
+    wb.save(EXCEL_PATH)
+    wb.close()
+
+    data = save_and_regenerate()
+    updated = next((r for r in data['regions'] if r['adcode'] == adcode), None)
+    return jsonify(updated)
+
+
 # ---- Curves ----
 
 @app.route('/api/curves', methods=['GET'])

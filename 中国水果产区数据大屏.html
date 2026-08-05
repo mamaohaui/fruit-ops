@@ -1446,14 +1446,19 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
     }
     document.getElementById('detail-body').innerHTML =
       backRow +
-      '<div class="info-card">' +
-      '<div class="card-title">产区信息</div>' +
+      '<div class="info-card" id="region-info-card">' +
+      '<div class="card-title">产区信息' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn-sm region-edit-btn" data-adc="' + adc + '">编辑</button>' +
+      '</div>' +
+      '<div id="region-info-content">' +
       '<div class="info-row"><span class="lbl">省份</span><span class="val">' + r.province + '</span></div>' +
       '<div class="info-row"><span class="lbl">城市</span><span class="val">' + (r.city || '—') + '</span></div>' +
       '<div class="info-row"><span class="lbl">区县</span><span class="val">' + (r.district || '—') + '</span></div>' +
       '<div class="info-row"><span class="lbl">乡镇</span><span class="val">' + (r.town || '—') + '</span></div>' +
       '<div class="info-row"><span class="lbl">等级</span><span class="val">' + lvlTag(r.level) + '</span></div>' +
       '<div class="info-row"><span class="lbl">坐标</span><span class="val">' + r.lng.toFixed(3) + ', ' + r.lat.toFixed(3) + '</span></div>' +
+      '</div>' +
       '</div>' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0;">' +
       '<span style="font-size:13px;font-weight:600;color:#333;">关联水果（' + assocFruits.length + ' 种）</span>' +
@@ -1473,6 +1478,11 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
       document.querySelectorAll('.add-fruit-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           showAddFruitForm(this.getAttribute('data-adc'));
+        });
+      });
+      document.querySelectorAll('.region-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          toggleRegionEditForm(this.getAttribute('data-adc'));
         });
       });
     }, 0);
@@ -1525,6 +1535,88 @@ var EMBEDDED_DATA = {"fruits": [["F001", "赣南脐橙", "柑橘类", "江西省
       '<label>区县</label>' + buildDistInput(r ? r.province : '', r ? r.city : '', r ? r.district : '') +
       '<label>乡镇</label>' + buildTownInput(r ? r.province : '', r ? r.city : '', r ? r.district : '', r ? r.town : '');
   }
+
+  // ============ 产区信息编辑 ============
+  function toggleRegionEditForm(adcode) {
+    var card = document.getElementById('region-info-card');
+    if (!card) return;
+    var existing = card.querySelector('.edit-form');
+    if (existing) { existing.remove(); return; }
+    var r = regionMap[adcode];
+    if (!r) return;
+    var content = document.getElementById('region-info-content');
+    if (content) content.style.display = 'none';
+    card.insertAdjacentHTML('beforeend', buildRegionEditFormHTML(r));
+  }
+
+  function buildRegionEditFormHTML(r) {
+    var levelOptions = ['核心产区', '重要产区', '一般产区'];
+    function selHTML(name, opts, sel) {
+      return '<select name="' + name + '" class="ef-input">' + opts.map(function(o) {
+        return '<option value="' + o + '"' + (o === sel ? ' selected' : '') + '>' + o + '</option>';
+      }).join('') + '</select>';
+    }
+    return '<div class="edit-form" id="region-edit-form">' +
+      buildCascadeRow(r) +
+      '<label>等级</label>' + selHTML('level', levelOptions, r.level || '一般产区') +
+      '<div class="form-row">' +
+      '<div><label>经度</label><input name="lng" value="' + r.lng + '" class="ef-input" type="number" step="any"></div>' +
+      '<div><label>纬度</label><input name="lat" value="' + r.lat + '" class="ef-input" type="number" step="any"></div>' +
+      '</div>' +
+      '<div class="form-actions">' +
+      '<button class="btn-sm" onclick="var ef=document.getElementById(\'region-edit-form\');var ct=document.getElementById(\'region-info-content\');if(ef)ef.remove();if(ct)ct.style.display=\'\';">取消</button>' +
+      '<button class="btn-sm primary" onclick="window._saveRegion(\'' + r.adcode + '\')">保存</button>' +
+      '</div></div>';
+  }
+
+  window._saveRegion = function(adcode) {
+    var card = document.getElementById('region-info-card');
+    if (!card) return;
+    var body = {};
+    card.querySelectorAll('.ef-input').forEach(function(el) { if (el.name) body[el.name] = el.value; });
+    var ps = card.querySelector('.prov-sel'); if (ps) body.province = ps.value;
+    var cs = card.querySelector('.city-sel'); if (cs) body.city = cs.value;
+    var ds = card.querySelector('.dist-sel'); if (ds) body.district = ds.value;
+    var ts = card.querySelector('.town-sel'); if (ts) body.town = ts.value;
+    if (!body.district || !body.district.trim()) body.district = body.city || '';
+
+    // 坐标转换为浮点数
+    if (body.lng) body.lng = parseFloat(body.lng);
+    if (body.lat) body.lat = parseFloat(body.lat);
+
+    // 优先通过 API 写入 Excel
+    apiFetch('PUT', '/api/regions/' + adcode, body).then(function() {
+      showToast('已保存产区信息到 Excel');
+      var ef2 = card.querySelector('.edit-form');
+      if (ef2) ef2.remove();
+      var ct2 = document.getElementById('region-info-content');
+      if (ct2) ct2.style.display = '';
+      return reloadFromServer();
+    }).then(function() {
+      renderCurrentLevel();
+      var r2 = regionMap[adcode];
+      if (r2) showRegionDetail(r2);
+    }).catch(function(err) {
+      // API 不可用：回退到内存编辑模式
+      console.warn('API 保存失败，使用内存模式：', err.message);
+      var r = regionMap[adcode];
+      if (r) {
+        r.province = body.province || r.province;
+        r.city = body.city || r.city;
+        r.district = body.district || r.district;
+        r.town = body.town || r.town;
+        if (body.lng !== undefined && !isNaN(body.lng)) r.lng = body.lng;
+        if (body.lat !== undefined && !isNaN(body.lat)) r.lat = body.lat;
+        if (body.level !== undefined) r.level = body.level;
+      }
+      showToast('已保存产区信息（内存模式 — 服务器未连接: ' + err.message + '）');
+      var ef = card.querySelector('.edit-form');
+      if (ef) ef.remove();
+      var ct = document.getElementById('region-info-content');
+      if (ct) ct.style.display = '';
+      if (r) showRegionDetail(r);
+    });
+  };
 
   // ============ 农批市场详情面板 ============
   function showMarketDetail(m) {
