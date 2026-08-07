@@ -14,18 +14,12 @@ import json
 import re
 import subprocess
 import time
+import urllib.request
+import urllib.parse
 import openpyxl
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 
-import hashlib
-import urllib.request
-import urllib.parse
-import json as json_lib
-
-# 高德地图 Web API 配置
-AMAP_KEY = "d60264473fe914fa0cf21d1a22a4e206"
-AMAP_SECRET = "ae7d546c1e8f25d8365b2c601fd3c96a"
 
 app = Flask(__name__)
 
@@ -63,6 +57,54 @@ if getattr(sys, 'frozen', False) and not os.path.exists(EXCEL_PATH):
 _cache = {'data': None, 'time': 0}
 CACHE_TTL = 2  # 秒，足以覆盖页面加载时的连续 API 请求
 _html_dirty = False  # 启动时即刻生成，无需延迟
+
+# ── Open-Meteo 免费地理编码（无需 API Key，中国大陆可用）──
+_LAST_GEOCODE_TIME = 0
+
+def _geocode_one(name):
+    """单次查询 Open-Meteo，返回 (lng, lat) 或 None。"""
+    global _LAST_GEOCODE_TIME
+    elapsed = time.time() - _LAST_GEOCODE_TIME
+    if elapsed < 1.1:
+        time.sleep(1.1 - elapsed)
+    try:
+        params = urllib.parse.urlencode({'name': name.strip(), 'count': 1, 'language': 'zh'})
+        url = f'https://geocoding-api.open-meteo.com/v1/search?{params}'
+        req = urllib.request.Request(url, headers={'User-Agent': 'FruitOpsDashboard/1.0'})
+        _LAST_GEOCODE_TIME = time.time()
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            results = json.loads(resp.read().decode('utf-8')).get('results', [])
+        if results:
+            return float(results[0]['longitude']), float(results[0]['latitude'])
+    except Exception as e:
+        print(f'[geocode] Open-Meteo 查询失败: {e}')
+    return None
+
+
+def geocode(address, city='', district=''):
+    """使用 Open-Meteo 将地址解析为 (lng, lat)。
+    按 完整地址 → 城市 → 区县 逐级回退。失败返回 (0, 0)。"""
+    if not address or not address.strip():
+        return 0, 0
+
+    # 1) 尝试完整地址
+    result = _geocode_one(address)
+    if result:
+        return result
+
+    # 2) 回退到城市名（去掉省前缀）
+    if city and city.strip():
+        result = _geocode_one(city)
+        if result:
+            return result
+
+    # 3) 回退到区县名
+    if district and district.strip() and district != city:
+        result = _geocode_one(district)
+        if result:
+            return result
+
+    return 0, 0
 
 # ============================================================
 # Column indices (1-based) — 13-column schema
@@ -226,29 +268,6 @@ def validate_season_consistency(body):
         'tail_len': tail_len,
     }
 
-
-def geocode(province="", city="", district="", town=""):
-    """调用高德地理编码 API，返回 (lng, lat)，失败返回 (0, 0)。"""
-    parts = [p for p in [province, city, district, town] if p and str(p).strip()]
-    address = "".join(parts)
-    if not address.strip():
-        return 0, 0
-    try:
-        params = f"address={urllib.parse.quote(address)}&output=JSON"
-        sig_raw = f"/v3/geocode/geo?{params}&key={AMAP_KEY}{AMAP_SECRET}"
-        sig = hashlib.md5(sig_raw.encode()).hexdigest()
-        url = f"https://restapi.amap.com/v3/geocode/geo?{params}&key={AMAP_KEY}&sig={sig}"
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json_lib.loads(resp.read().decode("utf-8"))
-        if data.get("status") == "1" and data.get("geocodes"):
-            loc = data["geocodes"][0].get("location", "0,0")
-            parts = loc.split(",")
-            if len(parts) == 2:
-                return float(parts[0]), float(parts[1])
-    except Exception as e:
-        print(f"[geocode] 查询失败: {address}, 错误: {e}")
-    return 0, 0
 
 
 def write_fruit_row(ws, row_num, fruit_data):
@@ -434,9 +453,11 @@ def create_fruit():
     except: lng = 0
     try: lat = float(body.get('lat', 0))
     except: lat = 0
-    # 若坐标为 0，调用高德 API 自动补全
+    # 坐标缺失时自动地理编码（逐级回退：完整地址→城市→区县）
     if lng == 0 and lat == 0:
-        lng, lat = geocode(body.get('province', ''), body.get('city', ''), body.get('district', ''), body.get('town', ''))
+        addr = ''.join([body.get('province', ''), body.get('city', ''),
+                        body.get('district', ''), body.get('town', '')])
+        lng, lat = geocode(addr, body.get('city', ''), body.get('district', ''))
     ws_r.cell(new_region_row, R_LNG).value = lng
     ws_r.cell(new_region_row, R_LAT).value = lat
     ws_r.cell(new_region_row, R_FIDS).value = new_id
@@ -516,19 +537,6 @@ def update_fruit(fruit_id):
             if 'city' in current: ws_r.cell(r, R_CITY).value = current.get('city', '')
             if 'district' in current: ws_r.cell(r, R_DIST).value = current.get('district', '')
             if 'town' in current: ws_r.cell(r, R_TOWN).value = current.get('town', '')
-            # 若产区坐标为 0，调用高德 API 补全
-            try: exist_lng = float(ws_r.cell(r, R_LNG).value or 0)
-            except: exist_lng = 0
-            try: exist_lat = float(ws_r.cell(r, R_LAT).value or 0)
-            except: exist_lat = 0
-            if exist_lng == 0 and exist_lat == 0:
-                prov = current.get('province', '') or str(ws_r.cell(r, R_PROV).value or '')
-                city = current.get('city', '') or str(ws_r.cell(r, R_CITY).value or '')
-                dist = current.get('district', '') or str(ws_r.cell(r, R_DIST).value or '')
-                town = current.get('town', '') or str(ws_r.cell(r, R_TOWN).value or '')
-                new_lng, new_lat = geocode(prov, city, dist, town)
-                ws_r.cell(r, R_LNG).value = new_lng
-                ws_r.cell(r, R_LAT).value = new_lat
             break
 
     wb.save(EXCEL_PATH)
@@ -619,9 +627,10 @@ def create_region():
         lat = float(body.get('lat', 0))
     except (ValueError, TypeError):
         lat = 0
+    # 坐标缺失时自动地理编码（逐级回退：完整地址→城市→区县）
     if lng == 0 and lat == 0:
-        lng, lat = geocode(province, city, district, town)
-
+        addr = ''.join([province, city, district, town])
+        lng, lat = geocode(addr, city, district)
     fruit_ids = (body.get('fruitIds', '') or '').strip()
 
     wb = openpyxl.load_workbook(EXCEL_PATH)
@@ -692,15 +701,7 @@ def update_region(adcode):
             except (ValueError, TypeError):
                 pass
 
-    # 若省份/城市变了且坐标为 0，调用高德 API 补全
-    if current['lng'] == 0 and current['lat'] == 0:
-        new_lng, new_lat = geocode(
-            current['province'], current['city'],
-            current['district'], current['town'])
-        if new_lng != 0 or new_lat != 0:
-            current['lng'], current['lat'] = new_lng, new_lat
-
-    # 如果 body 明确提供了非零坐标，优先使用
+    # 使用 body 中明确提供的坐标
     if body.get('lng') is not None:
         try:
             current['lng'] = float(body['lng'])
@@ -711,6 +712,15 @@ def update_region(adcode):
             current['lat'] = float(body['lat'])
         except (ValueError, TypeError):
             pass
+
+    # 地址变更但坐标仍缺失时自动地理编码（逐级回退）
+    if current['lng'] == 0 and current['lat'] == 0 \
+            and any(k in body for k in ['province', 'city', 'district', 'town']):
+        addr = ''.join([current['province'], current['city'], current['district'], current['town']])
+        auto_lng, auto_lat = geocode(addr, current['city'], current['district'])
+        if auto_lng != 0 or auto_lat != 0:
+            current['lng'] = auto_lng
+            current['lat'] = auto_lat
 
     # 写入 Excel
     ws_r.cell(target_row, R_ADCODE).value = current['adcode']
@@ -908,11 +918,6 @@ def sync_all():
         except: lng = 0
         try: lat = float(r.get('lat', 0))
         except: lat = 0
-        # 若坐标为 0，调用高德 API 自动补全
-        if lng == 0 and lat == 0:
-            lng, lat = geocode(
-                str(r.get('province', '')), str(r.get('city', '')),
-                str(r.get('district', '')), str(r.get('town', '')))
         ws_r.cell(row_num, R_LNG).value = lng
         ws_r.cell(row_num, R_LAT).value = lat
         ws_r.cell(row_num, R_FIDS).value = str(r.get('fruitIds', '')).strip()
