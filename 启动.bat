@@ -36,8 +36,26 @@ echo [信息] 大屏文件: 中国水果产区数据大屏.html
 echo ============================================
 echo.
 
-:: 等待服务器就绪后自动打开浏览器
-start "" http://localhost:5000/
-python server.py
+:: ── 后台启动 Flask 服务 ──
+start "" /b python server.py
 
+:: ── 等待服务器就绪后自动打开浏览器（最多约 60 秒） ──
+echo [信息] 正在等待服务器启动...
+set /a _wait=0
+:wait_ready
+ping -n 2 127.0.0.1 >nul
+netstat -ano | findstr ":5000.*LISTENING" >nul 2>&1
+if %errorlevel% equ 0 goto open_browser
+set /a _wait+=1
+if %_wait% lss 60 goto wait_ready
+echo [警告] 服务器启动超时，请检查上方报错信息
+goto end
+
+:open_browser
+start "" http://localhost:5000/
+echo [信息] 服务器已就绪，浏览器已自动打开：http://localhost:5000/
+
+:end
+echo [提示] 关闭本窗口或按任意键即可停止服务
+echo.
 pause
